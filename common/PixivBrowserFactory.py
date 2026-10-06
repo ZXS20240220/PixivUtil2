@@ -201,6 +201,14 @@ class PixivBrowser(mechanize.Browser):
 
         socket.setdefaulttimeout(config.timeout)
 
+        # Cloudflare (www.pixiv.net/fanbox) blocks mechanize's Python TLS
+        # fingerprint with 403; install curl_cffi transport with browser
+        # impersonation. handler_order=50 makes it preempt the built-in
+        # HTTP/HTTPS handlers (order 500) while keeping cookies/redirects.
+        from common.PixivCurlTransport import CurlCffiHandler
+
+        self.add_handler(CurlCffiHandler(config))
+
         if not self._config.enableSSLVerification:
             import ssl
 
@@ -1496,7 +1504,12 @@ class PixivBrowser(mechanize.Browser):
 
         try:
             p_res = curl_cffi.get(
-                p_url, impersonate="firefox135", headers=p_req.headers
+                p_url,
+                impersonate=self._config.userAgentImpersonation or "firefox",
+                headers=p_req.headers,
+                proxies=self._config.proxy if self._config.useProxy else None,
+                verify=bool(self._config.enableSSLVerification),
+                timeout=self._config.timeout,
             )
         except HTTPError as ex:
             if ex.code in [404]:

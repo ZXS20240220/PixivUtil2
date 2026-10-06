@@ -58,6 +58,7 @@ class PixivConfig():
         ConfigItem("Network", "useProxy", False),
         ConfigItem("Network", "proxyAddress", ""),
         ConfigItem("Network", "useragent", "Mozilla/5.0"),
+        ConfigItem("Network", "userAgentImpersonation", "firefox"),
         ConfigItem("Network", "useRobots", True),
         ConfigItem("Network", "timeout", 60),
         ConfigItem("Network", "retry", 10),
