@@ -12,3 +12,4 @@ colorama>=0.4.4
 cloudscraper>=1.2.58
 curl_cffi>=0.11.3
 # pyexiv2>=2.7.0 # Required for writeImageXMP.
+# windows_toasts>=1.0.0 # Optional: Windows 11 native notifications for auto_download.py

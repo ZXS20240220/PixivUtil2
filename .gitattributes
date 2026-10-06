@@ -1,3 +1,67 @@
+# Auto detect text files and normalize line endings to LF in repository
+* text=auto
+
+# Text files: force LF in repository
+*.py text eol=lf
+*.pyw text eol=lf
+*.txt text eol=lf
+*.md text eol=lf
+*.markdown text eol=lf
+*.json text eol=lf
+*.html text eol=lf
+*.htm text eol=lf
+*.css text eol=lf
+*.js text eol=lf
+*.ts text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+*.cfg text eol=lf
+*.ini text eol=lf
+*.csv text eol=lf
+*.xml text eol=lf
+*.sql text eol=lf
+*.sh text eol=lf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+Dockerfile text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+LICENSE text eol=lf
+MANIFEST.in text eol=lf
+requirements.txt text eol=lf
+uv.lock text eol=lf
+setup.py text eol=lf
+pyproject.toml text eol=lf
+.pep8 text eol=lf
+.pylintrc text eol=lf
+
+# Binary files: no line ending conversion
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.bmp binary
+*.webp binary
+*.ico binary
+*.dll binary
+*.exe binary
+*.zip binary
+*.7z binary
+*.gz binary
+*.tar binary
+*.mp4 binary
+*.webm binary
+*.ogg binary
+*.mp3 binary
+*.wav binary
+*.db binary
+*.sqlite binary
+*.pyc binary
+*.pyo binary
+
+# Linguist settings for GitHub language detection
 test_data/*.htm linguist-vendored=False
 test_data/*.html linguist-vendored=False
 test.new/*.htm linguist-vendored=False

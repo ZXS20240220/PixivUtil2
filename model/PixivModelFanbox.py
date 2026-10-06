@@ -552,23 +552,10 @@ class FanboxArtist(object):
 
         if "body" in js and js["body"] is not None:
             js_body = js["body"]
-            if "plans" in js["body"]:
-                js_body = js_body["plans"]
             if "supportingPlans" in js["body"]:
                 js_body = js_body["supportingPlans"]
             for creator in js_body:
-                if isinstance(creator, dict): # this is the old API, not sure if this is still used, but just in case
-                    ids.append(creator["creatorId"])
-                else:
-                    if "plans" in js_body:  # new API response as of 2026-07-25
-                        for plan in js_body["plans"]:
-                            ids.append(plan["creatorId"])
-                    else:
-                        raise PixivException(
-                            "Error when requesting Fanbox, no plans found",
-                            9999,
-                            js_body,
-                        )
+                ids.append(creator["creatorId"])
         return ids
 
     def __init__(self, artist_id, artist_name, creator_id, tzInfo=None):
@@ -590,9 +577,6 @@ class FanboxArtist(object):
 
         if js["body"] is not None:
             js_body = js["body"]
-            if isinstance(js_body, dict):
-                if "pageUrls" in js_body: # new API response as of 2026-07-25
-                    js_body = js_body["pageUrls"]
             self.Pages = js_body
 
     def parsePosts(self, page) -> List[FanboxPost]:
@@ -609,15 +593,13 @@ class FanboxArtist(object):
             if "creator" in js_body:
                 self.artistName = js_body["creator"]["user"]["name"]
 
-            if "posts" in js_body:
+            if "post" in js_body:
                 # new api
-                post_root = js_body["posts"]
+                post_root = js_body["post"]
             else:
                 # https://www.pixiv.net/ajax/fanbox/post?postId={0}
                 # or old api
                 post_root = js_body
-                if "posts" in js_body: # new api as of 2026-07-25
-                    post_root = js_body["posts"]
 
             # for jsPost in post_root["items"]:
             for jsPost in post_root:

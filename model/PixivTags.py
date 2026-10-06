@@ -4,13 +4,16 @@
 import json
 import os
 import re
-from typing import Optional
 
 import common.PixivHelper as PixivHelper
 from common.PixivException import PixivException
 
 
 class PixivTagsItem:
+    imageId: int = 0
+    bookmarkCount: int = 0
+    imageResponse: int = 0
+    ai_type: int = -1
 
     def __init__(self, image_id, bookmark_count, image_response_count, ai_type=-1):
         self.imageId = image_id
@@ -21,18 +24,17 @@ class PixivTagsItem:
 
 class PixivTags:
     '''Class for parsing tags search page'''
-    POSTS_PER_PAGE = 60
+    itemList = None
+    haveImage = None
+    isLastPage = None
+    availableImages = 0
+    # __re_illust = re.compile(r'member_illust.*illust_id=(\d*)')
+    # __re_imageItemClass = re.compile(r".*\bimage-item\b.*")
+    query = ""
+    memberId = 0
 
-    def __init__(self):
-        self.itemList = None
-        self.haveImage = None
-        self.isLastPage = None
-        self.availableImages = 0
-        # __re_illust = re.compile(r'member_illust.*illust_id=(\d*)')
-        # __re_imageItemClass = re.compile(r".*\bimage-item\b.*")
-        self.query = ""
-        self.memberId = 0
-        self.page = -1
+    POSTS_PER_PAGE = 60
+    page = -1
 
     def parseMemberTags(self, artist, memberId, query=""):
         '''process artist result and return the image list, https://www.pixiv.net/ajax/user/25661139/illustmanga/tag/<search_tags>'''
@@ -114,42 +116,3 @@ class PixivTags:
                 tags.append(line)
         reader.close()
         return tags
-
-class PixivTag:
-    """
-    AJAX response of https://www.pixiv.net/ajax/search/tags/{tag_id}
-    """
-
-    class PixPediaInfo:
-        abstract: str
-        image: str
-        id: str
-        tag: str
-
-        def __init__(self, payload):
-            self.abstract = payload.get("abstract", "")
-            self.image = payload.get("image", "")
-            self.id = payload.get("id", "")
-            self.tag = payload.get("tag", "")
-
-    tag: str
-    word: str
-    pixpedia: Optional[PixPediaInfo]
-    myFavoriteTags: list[str]
-    tagTranslation: dict[str, dict[str, dict]]  # tag_id -> { lang -> translation }
-
-    def __init__(self, payload):
-        if payload is None:
-            raise PixivException("Tag payload is empty", errorCode=PixivException.OTHER_ERROR)
-        if payload.get("error"):
-            raise PixivException(payload.get("message", "Tag info error"),
-                                 errorCode=PixivException.OTHER_ERROR,
-                                 htmlPage=payload)
-
-        body = payload.get("body", {})
-        self.tag = body.get("tag", "")
-        self.word = body.get("word", "")
-        pixpedia_payload = body.get("pixpedia")
-        self.pixpedia = self.PixPediaInfo(pixpedia_payload) if pixpedia_payload else None
-        self.myFavoriteTags = body.get("myFavoriteTags", [])
-        self.tagTranslation = body.get("tagTranslation", {})

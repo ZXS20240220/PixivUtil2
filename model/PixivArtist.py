@@ -9,29 +9,40 @@ from common.PixivException import PixivException
 
 class PixivArtist:
     '''Class for parsing member page.'''
+    artistId = 0
+    artistName = ""
+    artistAvatar = ""
+    artistToken = ""
+    artistBackground = ""
+    imageList = []
+    isLastPage = None
+    haveImages = None
+    totalImages = 0
+    # __re_imageULItemsClass = re.compile(r".*\b_image-items\b.*")
+    offset = None
+    limit = None
+    reference_image_id = 0
+    manga_series = []
+    novel_series = []
 
     def __init__(self, mid: int = 0, page: str = "", fromImage=False, offset: int = -1, limit: int = -1):
-        self.artistId = mid
-        self.artistName = ""
-        self.artistAvatar = ""
-        self.artistToken = ""
-        self.artistBackground = ""
-        self.imageList = []
-        self.isLastPage = None
-        self.haveImages = None
-        self.totalImages = 0
-        # __re_imageULItemsClass = re.compile(r".*\b_image-items\b.*")
         self.offset = offset
         self.limit = limit
-        self.reference_image_id = 0
-        self.manga_series = []
-        self.novel_series = []
+        self.artistId = mid
 
         if page is not None and len(page) > 0:
             payload = None
             # detect if image count != 0
             if not fromImage:
-                payload = json.loads(page)
+                try:
+                    payload = json.loads(page)
+                except (json.JSONDecodeError, ValueError) as ex:
+                    raise PixivException(
+                        f"Failed to parse JSON response: {ex}. "
+                        f"Likely network issue or non-JSON response (HTML/proxy error).",
+                        errorCode=PixivException.SERVER_ERROR,
+                        htmlPage=page,
+                    )
                 if payload["error"]:
                     raise PixivException(payload["message"], errorCode=PixivException.OTHER_MEMBER_ERROR, htmlPage=page)
                 if payload["body"] is None:

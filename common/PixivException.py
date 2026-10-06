@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-class PixivException(BaseException):
+class PixivException(Exception):
     # Error Codes
     NOT_LOGGED_IN = 100
     CANNOT_LOGIN = 1005

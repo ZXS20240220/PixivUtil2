@@ -58,8 +58,31 @@ class PixivUtilGUI:
         self.create_output_tab(output_frame)
         
     def create_download_tab(self, parent):
+        # Create canvas with scrollbar
+        canvas = tk.Canvas(parent, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas_window = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Stretch scrollable_frame to canvas width
+        def _on_canvas_configure(event):
+            canvas.itemconfig(canvas_window, width=event.width)
+        canvas.bind('<Configure>', _on_canvas_configure)
+        
+        # Mouse wheel scrolling
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        
         # Download mode selection
-        mode_frame = ttk.LabelFrame(parent, text="Download Mode", padding=10)
+        mode_frame = ttk.LabelFrame(scrollable_frame, text="Download Mode", padding=10)
         mode_frame.pack(fill='x', padx=10, pady=5)
         
         self.download_mode = tk.StringVar(value="1")
@@ -73,6 +96,7 @@ class PixivUtilGUI:
             ("7", "Download from Tags List"),
             ("8", "Download New Illustrations"),
             ("9", "Download by Title/Caption"),
+            ("20", "Download from Anchor List (AnchorList.csv)"),
             ("f1", "FANBOX: Supported Artists"),
             ("f2", "FANBOX: By Creator ID"),
             ("f4", "FANBOX: Followed Artists"),
@@ -89,7 +113,7 @@ class PixivUtilGUI:
                 row += 1
         
         # Input frame
-        input_frame = ttk.LabelFrame(parent, text="Input", padding=10)
+        input_frame = ttk.LabelFrame(scrollable_frame, text="Input", padding=10)
         input_frame.pack(fill='x', padx=10, pady=5)
         
         ttk.Label(input_frame, text="Enter ID(s) / Tags / File Path:").pack(anchor='w')
@@ -100,7 +124,7 @@ class PixivUtilGUI:
                   command=self.browse_file).pack(side='left', padx=5)
         
         # Options frame
-        options_frame = ttk.LabelFrame(parent, text="Options", padding=10)
+        options_frame = ttk.LabelFrame(scrollable_frame, text="Options", padding=10)
         options_frame.pack(fill='x', padx=10, pady=5)
         
         self.include_sketch = tk.BooleanVar()
@@ -121,8 +145,49 @@ class PixivUtilGUI:
         self.end_page.grid(row=1, column=3, sticky='w', padx=5)
         self.end_page.insert(0, "0")
         
+        # Enhanced Mode frame (for option 20)
+        enhanced_frame = ttk.LabelFrame(scrollable_frame, text="Enhanced Mode (Option 20)", padding=10)
+        enhanced_frame.pack(fill='x', padx=10, pady=5)
+        
+        self.enhanced_mode = tk.BooleanVar()
+        ttk.Checkbutton(enhanced_frame, text="Enable Enhanced Mode (AnchorDownloader)", 
+                       variable=self.enhanced_mode).grid(row=0, column=0, columnspan=2, sticky='w', padx=5, pady=2)
+        
+        self.use_proxy_force = tk.BooleanVar()
+        ttk.Checkbutton(enhanced_frame, text="Force use Proxy", 
+                       variable=self.use_proxy_force).grid(row=1, column=0, sticky='w', padx=5, pady=2)
+        
+        self.no_proxy_force = tk.BooleanVar()
+        ttk.Checkbutton(enhanced_frame, text="Force NO Proxy", 
+                       variable=self.no_proxy_force).grid(row=1, column=1, sticky='w', padx=5, pady=2)
+        
+        self.enable_log = tk.BooleanVar()
+        ttk.Checkbutton(enhanced_frame, text="Enable Run Log", 
+                       variable=self.enable_log).grid(row=2, column=0, sticky='w', padx=5, pady=2)
+        
+        self.no_notify = tk.BooleanVar()
+        ttk.Checkbutton(enhanced_frame, text="Disable Notifications", 
+                       variable=self.no_notify).grid(row=2, column=1, sticky='w', padx=5, pady=2)
+        
+        ttk.Label(enhanced_frame, text="Proxy Address:").grid(row=3, column=0, sticky='w', padx=5, pady=2)
+        self.enhanced_proxy_addr = ttk.Entry(enhanced_frame, width=30)
+        self.enhanced_proxy_addr.grid(row=3, column=1, sticky='ew', padx=5, pady=2)
+        
+        ttk.Label(enhanced_frame, text="Log File:").grid(row=4, column=0, sticky='w', padx=5, pady=2)
+        self.log_file_path = ttk.Entry(enhanced_frame, width=30)
+        self.log_file_path.grid(row=4, column=1, sticky='ew', padx=5, pady=2)
+        
+        ttk.Label(enhanced_frame, text="Download Log:").grid(row=5, column=0, sticky='w', padx=5, pady=2)
+        self.download_log_path = ttk.Entry(enhanced_frame, width=30)
+        self.download_log_path.grid(row=5, column=1, sticky='ew', padx=5, pady=2)
+        
+        ttk.Label(enhanced_frame, text="Notify Interval:").grid(row=6, column=0, sticky='w', padx=5, pady=2)
+        self.notify_interval = ttk.Entry(enhanced_frame, width=10)
+        self.notify_interval.grid(row=6, column=1, sticky='w', padx=5, pady=2)
+        self.notify_interval.insert(0, "1")
+        
         # Control buttons
-        button_frame = ttk.Frame(parent)
+        button_frame = ttk.Frame(scrollable_frame)
         button_frame.pack(fill='x', padx=10, pady=10)
         
         self.start_btn = ttk.Button(button_frame, text="Start Download", 
@@ -134,7 +199,7 @@ class PixivUtilGUI:
         self.stop_btn.pack(side='left', padx=5)
         
         # Progress
-        progress_frame = ttk.LabelFrame(parent, text="Progress", padding=10)
+        progress_frame = ttk.LabelFrame(scrollable_frame, text="Progress", padding=10)
         progress_frame.pack(fill='both', expand=True, padx=10, pady=5)
         
         self.progress_bar = ttk.Progressbar(progress_frame, mode='indeterminate')
@@ -143,9 +208,12 @@ class PixivUtilGUI:
         self.status_label = ttk.Label(progress_frame, text="Ready", foreground='green')
         self.status_label.pack(anchor='w')
         
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
     def create_settings_tab(self, parent):
         # Create canvas with scrollbar
-        canvas = tk.Canvas(parent)
+        canvas = tk.Canvas(parent, highlightthickness=0)
         scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas)
         
@@ -154,8 +222,18 @@ class PixivUtilGUI:
             lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
         )
         
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas_window = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Stretch scrollable_frame to canvas width
+        def _on_canvas_configure(event):
+            canvas.itemconfig(canvas_window, width=event.width)
+        canvas.bind('<Configure>', _on_canvas_configure)
+        
+        # Mouse wheel scrolling
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
         
         # Authentication
         auth_frame = ttk.LabelFrame(scrollable_frame, text="Authentication", padding=10)
@@ -394,7 +472,7 @@ class PixivUtilGUI:
         mode = self.download_mode.get()
         input_val = self.input_entry.get().strip()
         
-        if not input_val and mode not in ['5', '8', 'f1', 'f4']:
+        if not input_val and mode not in ['5', '8', '20', 'f1', 'f4']:
             messagebox.showwarning("Warning", "Please enter required input")
             return
         
@@ -423,6 +501,41 @@ class PixivUtilGUI:
             cmd.extend(['--sp', start])
         if end and end != '0':
             cmd.extend(['--ep', end])
+        
+        # Enhanced mode options (for option 20)
+        if mode == '20':
+            if self.enhanced_mode.get():
+                cmd.append('--enhanced')
+            
+            if self.use_proxy_force.get() and self.no_proxy_force.get():
+                messagebox.showwarning("Warning", "--proxy and --noproxy cannot be used together")
+                return
+            
+            if self.use_proxy_force.get():
+                cmd.append('--proxy')
+                proxy_addr = self.enhanced_proxy_addr.get().strip()
+                if proxy_addr:
+                    cmd.extend(['--proxy-address', proxy_addr])
+            
+            if self.no_proxy_force.get():
+                cmd.append('--noproxy')
+            
+            if self.enable_log.get():
+                cmd.append('--log')
+                log_file = self.log_file_path.get().strip()
+                if log_file:
+                    cmd.extend(['--log-file', log_file])
+            
+            dl_log = self.download_log_path.get().strip()
+            if dl_log:
+                cmd.extend(['--download-log', dl_log])
+            
+            interval = self.notify_interval.get().strip()
+            if interval and interval != '1':
+                cmd.extend(['--interval', interval])
+            
+            if self.no_notify.get():
+                cmd.append('--no-notify')
         
         cmd.append('-x')  # Exit when done
         

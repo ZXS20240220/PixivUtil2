@@ -21,12 +21,13 @@ from common.PixivException import PixivException
 
 
 class PixivTagData(object):
+    tag = ""
+    romaji = None
+    translation_data = None
 
     def __init__(self, tag, tag_node):
         super().__init__()
         self.tag = tag
-        self.romaji = None
-        self.translation_data = None
         if tag_node is not None:
             if "romaji" in tag_node:
                 self.romaji = tag_node["romaji"]
@@ -41,50 +42,75 @@ class PixivTagData(object):
         if self.translation_data is not None:
             if locale in self.translation_data:
                 return self.translation_data[locale]
+            if locale != "en" and "en" in self.translation_data:
+                return self.translation_data["en"]
         return self.tag
 
 
-class PixivImage (object):
-    '''Class for parsing image page, including manga page and big image.'''
-    __re_caption = re.compile("caption")
+class PixivImage(object):
+    """Class for parsing image page, including manga page and big image."""
 
-    def __init__(self,
-                 iid=0,
-                 page=None,
-                 parent=None,
-                 fromBookmark=False,
-                 bookmark_count=-1,
-                 image_response_count=-1,
-                 dateFormat=None,
-                 tzInfo=None,
-                 manga_series_order=-1,
-                 manga_series_parent=None,
-                 writeRawJSON=False,
-                 stripHTMLTagsFromCaption=False):
+    artist = None
+    originalArtist = None
+    imageId = 0
+    imageTitle = ""
+    imageCaption = ""
+    imageTags = []
+    imageMode = ""
+    imageUrls = []
+    imageResizedUrls = []
+    worksDate = ""
+    worksResolution = ""
+    seriesNavData = {}
+    rawJSON = {}
+    jd_rtv = 0
+    jd_rtc = 0
+    # jd_rtt = 0
+    imageCount = 0
+    fromBookmark = False
+    worksDateDateTime = datetime.fromordinal(1)
+    js_createDate = None
+    bookmark_count = -1
+    image_response_count = -1
+    ugoira_data = ""
+    dateFormat = None
+    descriptionUrlList = []
+    __re_caption = re.compile("caption")
+    _tzInfo = None
+    tags: list[PixivTagData]
+
+    # only applicable for manga series
+    manga_series_order: int = -1
+    manga_series_parent = None
+
+    # Issue #1064 titleCaptionTranslation
+    translated_work_title = ""
+    translated_work_caption = ""
+
+    # Issue #1189
+    ai_type = -1
+
+    def __init__(
+        self,
+        iid=0,
+        page=None,
+        parent=None,
+        fromBookmark=False,
+        bookmark_count=-1,
+        image_response_count=-1,
+        dateFormat=None,
+        tzInfo=None,
+        manga_series_order=-1,
+        manga_series_parent=None,
+        writeRawJSON=False,
+        stripHTMLTagsFromCaption=False,
+    ):
         self.artist = parent
-        self.originalArtist = None
+        self.fromBookmark = fromBookmark
+        self.bookmark_count = bookmark_count
         self.imageId = iid
-        self.imageTitle = ""
-        self.imageCaption = ""
-        self.imageTags = []
-        self.imageMode = ""
         self.imageUrls = []
         self.imageResizedUrls = []
-        self.worksDate = ""
-        self.worksResolution = ""
-        self.seriesNavData = {}
-        self.rawJSON = {}
-        self.jd_rtv = 0
-        self.jd_rtc = 0
-        # jd_rtt = 0
-        self.imageCount = 0
-        self.fromBookmark = fromBookmark
-        self.worksDateDateTime = datetime.fromordinal(1)
-        self.js_createDate = None
-        self.bookmark_count = bookmark_count
-        self.image_response_count = image_response_count
-        self.comment_count = -1
-        self.ugoira_data = ""
         self.dateFormat = dateFormat
         self.descriptionUrlList = []
         self._tzInfo = tzInfo
@@ -94,39 +120,62 @@ class PixivImage (object):
         self.manga_series_order = manga_series_order
         self.manga_series_parent = manga_series_parent
 
-        # Issue #1064 titleCaptionTranslation
         self.translated_work_title = ""
         self.translated_work_caption = ""
 
-        # Issue #1189
-        self.ai_type = -1
-
         if page is not None:
-            payload = json.loads(page)  # https://www.pixiv.net/ajax/illust/{image_id}?lang=en
+            payload = json.loads(
+                page
+            )  # https://www.pixiv.net/ajax/illust/{image_id}?lang=en
             # check error
             if payload is None:
-                raise PixivException('Image Error: Cannot load image info from payload', errorCode=PixivException.SERVER_ERROR, htmlPage=page)
+                raise PixivException(
+                    "Image Error: Cannot load image info from payload",
+                    errorCode=PixivException.SERVER_ERROR,
+                    htmlPage=page,
+                )
             if payload["error"]:
-                raise PixivException(f'Image Error: {payload["message"]}', errorCode=PixivException.SERVER_ERROR, htmlPage=page)
+                error_msg = payload.get("message", "")
+                if (
+                    payload.get("body") is None
+                    or "not found" in str(error_msg).lower()
+                    or "404" in str(error_msg).lower()
+                    or "410" in str(error_msg).lower()
+                ):
+                    raise PixivException(
+                        f"Image Error: {error_msg}",
+                        errorCode=PixivException.IMAGE_DELETED,
+                        htmlPage=page,
+                    )
+                raise PixivException(
+                    f"Image Error: {error_msg}",
+                    errorCode=PixivException.SERVER_ERROR,
+                    htmlPage=page,
+                )
 
             payload = payload["body"]
 
             # not logged in will return empty values in the urls node
             if payload["urls"]["original"] is None:
-                raise PixivException(f'Image Error: Unable to get the image urls, possibly not logged in.', errorCode=PixivException.NOT_LOGGED_IN, htmlPage=page)
+                raise PixivException(
+                    f"Image Error: Unable to get the image urls, possibly not logged in.",
+                    errorCode=PixivException.NOT_LOGGED_IN,
+                    htmlPage=page,
+                )
 
             # parse artist information
             if parent is None:
                 from common.PixivBrowserFactory import getBrowser
+
                 br = getBrowser()
                 artist, _ = br.getMemberPage(member_id=int(payload["userId"]))
                 self.artist = artist
-                assert (int(self.artist.artistId) == int(payload["userId"]))
+                assert int(self.artist.artistId) == int(payload["userId"])
                 self.artist.artistName = payload["userName"]
                 self.artist.artistToken = payload["userAccount"]
 
             if fromBookmark and self.originalArtist is None:
-                assert (self.artist is not None)
+                assert self.artist is not None
                 self.originalArtist = PixivArtist(page=page, fromImage=True)
                 print("From Artist Bookmark: {0}".format(self.artist.artistId))
                 print("Original Artist: {0}".format(self.originalArtist.artistId))
@@ -137,7 +186,7 @@ class PixivImage (object):
             self.ParseInfo(payload, writeRawJSON)
 
     def ParseInfo(self, page, writeRawJSON):
-        assert (int(page["illustId"]) == int(self.imageId))
+        assert int(page["illustId"]) == int(self.imageId)
         root = page
         # save the JSON if writeRawJSON is enabled
         if writeRawJSON:
@@ -162,7 +211,9 @@ class PixivImage (object):
                 temp_url_ori = temp_url_ori + "_ugoira1920x1080.zip"
                 self.imageUrls.append(temp_url_ori)
 
-                temp_resized_url = temp_url.replace("/img-original/", "/img-zip-ugoira/")
+                temp_resized_url = temp_url.replace(
+                    "/img-original/", "/img-zip-ugoira/"
+                )
                 temp_resized_url = temp_resized_url.split("_ugoira0")[0]
                 temp_resized_url = temp_resized_url + "_ugoira600x600.zip"
                 self.imageResizedUrls.append(temp_resized_url)
@@ -206,13 +257,15 @@ class PixivImage (object):
         # datetime, in utc
         # "createDate" : "2018-06-08T15:00:04+00:00",
         self.worksDateDateTime = datetime_z.parse_datetime(root["createDate"])
-        assert (self.worksDateDateTime is not None)
+        assert self.worksDateDateTime is not None
         self.js_createDate = root["createDate"]  # store for json file
         # Issue #420
         if self._tzInfo is not None:
             self.worksDateDateTime = self.worksDateDateTime.astimezone(self._tzInfo)
 
-        tempDateFormat = self.dateFormat or "%Y-%m-%d"     # 2018-07-22, else configured in config.ini
+        tempDateFormat = (
+            self.dateFormat or "%Y-%m-%d"
+        )  # 2018-07-22, else configured in config.ini
         self.worksDate = self.worksDateDateTime.strftime(tempDateFormat)
 
         # resolution
@@ -222,7 +275,6 @@ class PixivImage (object):
 
         self.bookmark_count = root["bookmarkCount"]
         self.image_response_count = root["responseCount"]
-        self.comment_count = root["commentCount"]
 
         # Issue 421
         self.parse_url_from_caption(self.imageCaption)
@@ -236,17 +288,27 @@ class PixivImage (object):
 
         # Issue #1064
         if "titleCaptionTranslation" in root:
-            if "workTitle" in root["titleCaptionTranslation"] and \
-               root["titleCaptionTranslation"]["workTitle"] is not None and \
-               len(root["titleCaptionTranslation"]["workTitle"]) > 0:
-                self.translated_work_title = root["titleCaptionTranslation"]["workTitle"]
-            if "workCaption" in root["titleCaptionTranslation"] and \
-               root["titleCaptionTranslation"]["workCaption"] is not None and \
-               len(root["titleCaptionTranslation"]["workCaption"]) > 0:
-                self.translated_work_caption = root["titleCaptionTranslation"]["workCaption"]
+            if (
+                "workTitle" in root["titleCaptionTranslation"]
+                and root["titleCaptionTranslation"]["workTitle"] is not None
+                and len(root["titleCaptionTranslation"]["workTitle"]) > 0
+            ):
+                self.translated_work_title = root["titleCaptionTranslation"][
+                    "workTitle"
+                ]
+            if (
+                "workCaption" in root["titleCaptionTranslation"]
+                and root["titleCaptionTranslation"]["workCaption"] is not None
+                and len(root["titleCaptionTranslation"]["workCaption"]) > 0
+            ):
+                self.translated_work_caption = root["titleCaptionTranslation"][
+                    "workCaption"
+                ]
                 self.parse_url_from_caption(self.translated_work_caption)
                 if self.stripHTMLTagsFromCaption:
-                    caption_element = BeautifulSoup(self.translated_work_caption, features="html5lib")
+                    caption_element = BeautifulSoup(
+                        self.translated_work_caption, features="html5lib"
+                    )
                     self.translated_work_caption = caption_element.text
                     caption_element.decompose()
                     del caption_element
@@ -259,7 +321,7 @@ class PixivImage (object):
 
     def parse_url_from_caption(self, caption_to_parse):
         parsed = BeautifulSoup(caption_to_parse, features="html5lib")
-        links = parsed.find_all('a')
+        links = parsed.find_all("a")
         if links is not None and len(links) > 0:
             for link in links:
                 link_str = link["href"]
@@ -285,87 +347,97 @@ class PixivImage (object):
         js["src"] = js["src"].replace("ugoira600x600.zip", "ugoira1920x1080.zip")
 
         # need to be minified
-        self.ugoira_data = json.dumps(js, separators=(',', ':'))  # ).replace("/", r"\/")
+        self.ugoira_data = json.dumps(
+            js, separators=(",", ":")
+        )  # ).replace("/", r"\/")
 
-        assert (len(self.ugoira_data) > 0)
+        assert len(self.ugoira_data) > 0
         return js["src"]
 
     def IsNotLoggedIn(self, page):
-        check = page.findAll('a', attrs={'class': 'signup_button'})
+        check = page.findAll("a", attrs={"class": "signup_button"})
         if check is not None and len(check) > 0:
             return True
-        check = page.findAll('a', attrs={'class': 'ui-button _signup'})
+        check = page.findAll("a", attrs={"class": "ui-button _signup"})
         if check is not None and len(check) > 0:
             return True
         return False
 
     def IsNeedAppropriateLevel(self, page):
-        errorMessages = ['該当作品の公開レベルにより閲覧できません。']
+        errorMessages = ["該当作品の公開レベルにより閲覧できません。"]
         return PixivHelper.have_strings(page, errorMessages)
 
     def IsNeedPermission(self, page):
-        errorMessages = ['この作品は.+さんのマイピクにのみ公開されています|この作品は、.+さんのマイピクにのみ公開されています',
-                         'This work is viewable only for users who are in .+\'s My pixiv list',
-                         'Only .+\'s My pixiv list can view this.',
-                         '<section class="restricted-content">']
+        errorMessages = [
+            "この作品は.+さんのマイピクにのみ公開されています|この作品は、.+さんのマイピクにのみ公開されています",
+            "This work is viewable only for users who are in .+'s My pixiv list",
+            "Only .+'s My pixiv list can view this.",
+            '<section class="restricted-content">',
+        ]
         return PixivHelper.have_strings(page, errorMessages)
 
     def IsDeleted(self, page):
-        errorMessages = ['該当イラストは削除されたか、存在しないイラストIDです。|該当作品は削除されたか、存在しない作品IDです。',
-                         'この作品は削除されました。',
-                         'The following work is either deleted, or the ID does not exist.',
-                         'This work was deleted.',
-                         'Work has been deleted or the ID does not exist.']
+        errorMessages = [
+            "該当イラストは削除されたか、存在しないイラストIDです。|該当作品は削除されたか、存在しない作品IDです。",
+            "この作品は削除されました。",
+            "The following work is either deleted, or the ID does not exist.",
+            "This work was deleted.",
+            "Work has been deleted or the ID does not exist.",
+        ]
         return PixivHelper.have_strings(page, errorMessages)
 
     def IsGuroDisabled(self, page):
-        errorMessages = ['表示されるページには、18歳未満の方には不適切な表現内容が含まれています。',
-                         'The page you are trying to access contains content that may be unsuitable for minors']
+        errorMessages = [
+            "表示されるページには、18歳未満の方には不適切な表現内容が含まれています。",
+            "The page you are trying to access contains content that may be unsuitable for minors",
+        ]
         return PixivHelper.have_strings(page, errorMessages)
 
     def IsErrorExist(self, page):
-        check = page.findAll('span', attrs={'class': 'error'})
+        check = page.findAll("span", attrs={"class": "error"})
         if len(check) > 0:
-            check2 = check[0].findAll('strong')
+            check2 = check[0].findAll("strong")
             if len(check2) > 0:
                 return check2[0].renderContents()
-        check = page.findAll('div', attrs={'class': '_unit error-unit'})
+        check = page.findAll("div", attrs={"class": "_unit error-unit"})
         if len(check) > 0:
-            check2 = check[0].findAll('p', attrs={'class': 'error-message'})
+            check2 = check[0].findAll("p", attrs={"class": "error-message"})
             if len(check2) > 0:
                 return check2[0].renderContents()
         return None
 
     def IsServerErrorExist(self, page):
-        check = page.findAll('div', attrs={'class': 'errorArea'})
+        check = page.findAll("div", attrs={"class": "errorArea"})
         if len(check) > 0:
-            check2 = check[0].findAll('h2')
+            check2 = check[0].findAll("h2")
             if len(check2) > 0:
                 return check2[0].renderContents()
         return None
 
     def PrintInfo(self):
-        PixivHelper.safePrint('Image Info')
-        PixivHelper.safePrint('img id: ' + str(self.imageId))
-        PixivHelper.safePrint('title : ' + self.imageTitle)
-        PixivHelper.safePrint('caption : ' + self.imageCaption)
-        PixivHelper.safePrint('mode  : ' + self.imageMode)
-        PixivHelper.safePrint('tags  :', newline=False)
-        PixivHelper.safePrint(', '.join(self.imageTags))
-        PixivHelper.safePrint('views : ' + str(self.jd_rtv))
-        PixivHelper.safePrint('rating: ' + str(self.jd_rtc))
+        PixivHelper.safePrint("Image Info")
+        PixivHelper.safePrint("img id: " + str(self.imageId))
+        PixivHelper.safePrint("title : " + self.imageTitle)
+        PixivHelper.safePrint("caption : " + self.imageCaption)
+        PixivHelper.safePrint("mode  : " + self.imageMode)
+        PixivHelper.safePrint("tags  :", newline=False)
+        PixivHelper.safePrint(", ".join(self.imageTags))
+        PixivHelper.safePrint("views : " + str(self.jd_rtv))
+        PixivHelper.safePrint("rating: " + str(self.jd_rtc))
         # PixivHelper.safePrint('total : ' + str(self.jd_rtt))
-        PixivHelper.safePrint('Date : ' + self.worksDate)
-        PixivHelper.safePrint('Resolution : ' + self.worksResolution)
+        PixivHelper.safePrint("Date : " + self.worksDate)
+        PixivHelper.safePrint("Resolution : " + self.worksResolution)
         return ""
 
     def ParseBookmarkDetails(self, page):
         if page is None:
-            raise PixivException('No page given', errorCode=PixivException.NO_PAGE_GIVEN)
+            raise PixivException(
+                "No page given", errorCode=PixivException.NO_PAGE_GIVEN
+            )
         try:
-            countUl = page.findAll('ul', attrs={'class': 'count-list'})
+            countUl = page.findAll("ul", attrs={"class": "count-list"})
             if countUl is not None and len(countUl) > 0:
-                countA = countUl[0].findAll('a')
+                countA = countUl[0].findAll("a")
                 if countA is not None and len(countA) > 0:
                     for a in countA:
                         if "bookmark-count" in a["class"]:
@@ -377,7 +449,9 @@ class PixivImage (object):
             self.bookmark_count = 0
             self.image_response_count = 0
         except BaseException:
-            PixivHelper.get_logger().exception("Cannot parse bookmark count for: %d", self.imageId)
+            PixivHelper.get_logger().exception(
+                "Cannot parse bookmark count for: %d", self.imageId
+            )
 
     def WriteInfo(self, filename):
         info = None
@@ -385,12 +459,16 @@ class PixivImage (object):
             # Issue #421 ensure subdir exists.
             PixivHelper.makeSubdirs(filename)
 
-            info = codecs.open(filename, 'wb', encoding='utf-8')
+            info = codecs.open(filename, "wb", encoding="utf-8")
         except IOError:
-            info = codecs.open(str(self.imageId) + ".txt", 'wb', encoding='utf-8')
-            PixivHelper.get_logger().exception("Error when saving image info: %s, file is saved to: %s.txt", filename, str(self.imageId))
+            info = codecs.open(str(self.imageId) + ".txt", "wb", encoding="utf-8")
+            PixivHelper.get_logger().exception(
+                "Error when saving image info: %s, file is saved to: %s.txt",
+                filename,
+                str(self.imageId),
+            )
 
-        assert (self.artist is not None)
+        assert self.artist is not None
         info.write(f"ArtistID      = {self.artist.artistId}\r\n")
         info.write(f"ArtistName    = {self.artist.artistName}\r\n")
         info.write(f"ImageID       = {self.imageId}\r\n")
@@ -406,7 +484,9 @@ class PixivImage (object):
         info.write(f"Date          = {self.worksDateDateTime}\r\n")
         info.write(f"Resolution    = {self.worksResolution}\r\n")
         info.write(f"BookmarkCount = {self.bookmark_count}\r\n")
-        info.write(f"Link          = http://www.pixiv.net/en/artworks/{self.imageId}\r\n")
+        info.write(
+            f"Link          = http://www.pixiv.net/en/artworks/{self.imageId}\r\n"
+        )
         if self.ugoira_data:
             info.write(f"Ugoira Data   = {self.ugoira_data}\r\n")
         if len(self.descriptionUrlList) > 0:
@@ -426,10 +506,14 @@ class PixivImage (object):
         try:
             # Issue #421 ensure subdir exists.
             PixivHelper.makeSubdirs(filename)
-            info = codecs.open(filename, 'w', encoding='utf-8')
+            info = codecs.open(filename, "w", encoding="utf-8")
         except IOError:
-            info = codecs.open(str(self.imageId) + ".json", 'w', encoding='utf-8')
-            PixivHelper.get_logger().exception("Error when saving image info: %s, file is saved to: %s.json", filename, self.imageId)
+            info = codecs.open(str(self.imageId) + ".json", "w", encoding="utf-8")
+            PixivHelper.get_logger().exception(
+                "Error when saving image info: %s, file is saved to: %s.json",
+                filename,
+                self.imageId,
+            )
         if self.rawJSON:
             jsonInfo = self.rawJSON
             if JSONfilter:
@@ -441,7 +525,7 @@ class PixivImage (object):
             info.close()
         else:
             # Fix Issue #481
-            assert (self.artist is not None)
+            assert self.artist is not None
             jsonInfo = collections.OrderedDict()
             jsonInfo["Artist ID"] = self.artist.artistId
             jsonInfo["Artist Name"] = self.artist.artistName
@@ -467,69 +551,77 @@ class PixivImage (object):
             if len(self.descriptionUrlList) > 0:
                 jsonInfo["Urls"] = self.descriptionUrlList
             # Issue #1064
-            jsonInfo["titleCaptionTranslation"] = {"workTitle": self.translated_work_title, "workCaption": self.translated_work_caption}
+            jsonInfo["titleCaptionTranslation"] = {
+                "workTitle": self.translated_work_title,
+                "workCaption": self.translated_work_caption,
+            }
             info.write(json.dumps(jsonInfo, ensure_ascii=False, indent=4))
             info.close()
 
     def WriteXMP(self, filename, use_translated_tag, locale):
         import pyexiv2
+
         # import tempfile
 
         # need to use temp file due to bad unicode support for pyexiv2 in windows
         d = PixivHelper.create_temp_dir(prefix="xmp")
         tempname = f"{d}/{self.imageId}.xmp"
 
-        info = codecs.open(tempname, 'wb', encoding='utf-8')
+        info = codecs.open(tempname, "wb", encoding="utf-8")
 
         # Create the XMP file template.
-        info.write('<?xpacket begin="" id=""?>\n<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="XMP Core 4.4.0-Exiv2">\n</x:xmpmeta>\n<?xpacket end="w"?>\n')
+        info.write(
+            '<?xpacket begin="" id=""?>\n<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="XMP Core 4.4.0-Exiv2">\n</x:xmpmeta>\n<?xpacket end="w"?>\n'
+        )
         info.close()
 
         # Reopen file using pyexiv2
         # newer version e.g. pyexiv2-2.7.0
         info = pyexiv2.Image(tempname)
         info_dict = info.read_xmp()
-        assert (self.artist is not None)
-        info_dict['Xmp.dc.creator'] = [self.artist.artistName]
+        assert self.artist is not None
+        info_dict["Xmp.dc.creator"] = [self.artist.artistName]
         # Check array isn't empty.
         if self.imageTitle:
-            info_dict['Xmp.dc.title'] = self.imageTitle
+            info_dict["Xmp.dc.title"] = self.imageTitle
         # Check array isn't empty.
         if self.imageCaption:
-            info_dict['Xmp.dc.description'] = self.imageCaption
+            info_dict["Xmp.dc.description"] = self.imageCaption
         # Check array isn't empty.
         if self.imageTags:
             # Feature #1216
             if use_translated_tag:
-                info_dict['Xmp.dc.subject'] = self.get_translated_tags(locale)
+                info_dict["Xmp.dc.subject"] = self.get_translated_tags(locale)
             else:
-                info_dict['Xmp.dc.subject'] = self.imageTags
-        info_dict['Xmp.dc.date'] = [self.worksDateDateTime]
-        info_dict['Xmp.dc.source'] = f"http://www.pixiv.net/en/artworks/{self.imageId}"
-        info_dict['Xmp.dc.identifier'] = self.imageId
+                info_dict["Xmp.dc.subject"] = self.imageTags
+        info_dict["Xmp.dc.date"] = [self.worksDateDateTime]
+        info_dict["Xmp.dc.source"] = f"http://www.pixiv.net/en/artworks/{self.imageId}"
+        info_dict["Xmp.dc.identifier"] = self.imageId
 
         # Custom 'pixiv' namespace for non-standard details.
-        pyexiv2.registerNs('http://pixiv.com/', 'pixiv')
+        pyexiv2.registerNs("http://pixiv.com/", "pixiv")
 
-        info_dict['Xmp.pixiv.artist_id'] = self.artist.artistId
-        info_dict['Xmp.pixiv.image_mode'] = self.imageMode
-        info_dict['Xmp.pixiv.pages'] = self.imageCount
-        info_dict['Xmp.pixiv.resolution'] = self.worksResolution
-        info_dict['Xmp.pixiv.bookmark_count'] = self.bookmark_count
+        info_dict["Xmp.pixiv.artist_id"] = self.artist.artistId
+        info_dict["Xmp.pixiv.image_mode"] = self.imageMode
+        info_dict["Xmp.pixiv.pages"] = self.imageCount
+        info_dict["Xmp.pixiv.resolution"] = self.worksResolution
+        info_dict["Xmp.pixiv.bookmark_count"] = self.bookmark_count
 
         if self.seriesNavData:
-            info_dict['Xmp.pixiv.series_title'] = self.seriesNavData['title']
-            info_dict['Xmp.pixiv.series_order'] = self.seriesNavData['order']
-            info_dict['Xmp.pixiv.series_id'] = self.seriesNavData['seriesId']
+            info_dict["Xmp.pixiv.series_title"] = self.seriesNavData["title"]
+            info_dict["Xmp.pixiv.series_order"] = self.seriesNavData["order"]
+            info_dict["Xmp.pixiv.series_id"] = self.seriesNavData["seriesId"]
         if self.ugoira_data:
-            info_dict['Xmp.pixiv.ugoira_data'] = self.ugoira_data
+            info_dict["Xmp.pixiv.ugoira_data"] = self.ugoira_data
         if len(self.descriptionUrlList) > 0:
-            info_dict['Xmp.pixiv.urls'] = ", ".join(self.descriptionUrlList)
+            info_dict["Xmp.pixiv.urls"] = ", ".join(self.descriptionUrlList)
         # Issue #1064
         if len(self.translated_work_title) > 0:
-            info_dict['Xmp.pixiv.translated_work_title'] = self.translated_work_title
+            info_dict["Xmp.pixiv.translated_work_title"] = self.translated_work_title
         if len(self.translated_work_caption) > 0:
-            info_dict['Xmp.pixiv.translated_work_caption'] = self.translated_work_caption
+            info_dict["Xmp.pixiv.translated_work_caption"] = (
+                self.translated_work_caption
+            )
         info.modify_xmp(info_dict)
         info.close()
 
@@ -540,18 +632,29 @@ class PixivImage (object):
             shutil.move(tempname, filename)
         except IOError:
             shutil.move(tempname, f"{self.imageId}.xmp")
-            PixivHelper.get_logger().exception("Error when saving image info: %s, file is saved to: %s.xmp", filename, str(self.imageId))
+            PixivHelper.get_logger().exception(
+                "Error when saving image info: %s, file is saved to: %s.xmp",
+                filename,
+                str(self.imageId),
+            )
 
     def WriteSeriesData(self, seriesId, seriesDownloaded, filename):
         from common.PixivBrowserFactory import getBrowser
+
         br = getBrowser()
         try:
             # Issue #421 ensure subdir exists.
             PixivHelper.makeSubdirs(filename)
-            outfile = codecs.open(filename, 'w', encoding='utf-8')
+            outfile = codecs.open(filename, "w", encoding="utf-8")
         except IOError:
-            outfile = codecs.open("Series " + str(seriesId) + ".json", 'w', encoding='utf-8')
-            PixivHelper.get_logger().exception("Error when saving image info: %s, file is saved to: %s.json", filename, "Series " + str(seriesId) + ".json")
+            outfile = codecs.open(
+                "Series " + str(seriesId) + ".json", "w", encoding="utf-8"
+            )
+            PixivHelper.get_logger().exception(
+                "Error when saving image info: %s, file is saved to: %s.json",
+                filename,
+                "Series " + str(seriesId) + ".json",
+            )
         receivedJSON = json.loads(br.getMangaSeriesJson(seriesId, 1))
         jsondata = receivedJSON["body"]["illustSeries"][0]
         jsondata.update(receivedJSON["body"]["page"])
@@ -559,7 +662,15 @@ class PixivImage (object):
         for x in range(2, pages):
             receivedJSON = json.loads(br.getMangaSeriesJson(seriesId, x))
             jsondata["series"].extend(receivedJSON["body"]["page"]["series"])
-        for x in ["recentUpdatedWorkIds", "otherSeriesId", "seriesId", "isSetCover", "firstIllustId", "coverImageSl", "url"]:
+        for x in [
+            "recentUpdatedWorkIds",
+            "otherSeriesId",
+            "seriesId",
+            "isSetCover",
+            "firstIllustId",
+            "coverImageSl",
+            "url",
+        ]:
             del jsondata[x]
         outfile.write(json.dumps(jsondata, ensure_ascii=False))
         outfile.close()
@@ -570,16 +681,22 @@ class PixivImage (object):
         try:
             # Issue #421 ensure subdir exists.
             PixivHelper.makeSubdirs(filename)
-            info = codecs.open(filename, 'wb', encoding='utf-8')
+            info = codecs.open(filename, "wb", encoding="utf-8")
         except IOError:
-            info = codecs.open(str(self.imageId) + ".js", 'wb', encoding='utf-8')
-            PixivHelper.get_logger().exception("Error when saving image info: %s, file is saved to: %d.js", filename, self.imageId)
+            info = codecs.open(str(self.imageId) + ".js", "wb", encoding="utf-8")
+            PixivHelper.get_logger().exception(
+                "Error when saving image info: %s, file is saved to: %d.js",
+                filename,
+                self.imageId,
+            )
         info.write(str(self.ugoira_data))
         info.close()
 
     def create_ugoira(self, filename) -> bool:
         if len(self.ugoira_data) == 0:
-            PixivHelper.get_logger().exception("Missing ugoira animation info for image: %d", self.imageId)
+            PixivHelper.get_logger().exception(
+                "Missing ugoira animation info for image: %d", self.imageId
+            )
 
         zipTarget = filename[:-4] + ".ugoira"
         if os.path.exists(zipTarget):
@@ -587,7 +704,7 @@ class PixivImage (object):
 
         shutil.copyfile(filename, zipTarget)
         zipSize = os.stat(filename).st_size
-        jsStr = self.ugoira_data[:-1] + r',"zipSize":' + str(zipSize) + r'}'
+        jsStr = self.ugoira_data[:-1] + r',"zipSize":' + str(zipSize) + r"}"
         with zipfile.ZipFile(zipTarget, mode="a") as z:
             z.writestr("animation.json", jsStr)
         return True
@@ -611,26 +728,32 @@ class PixivImage (object):
 
 
 class PixivMangaSeries:
+    manga_series_id: int = 0
+    member_id: int = 0
+    pages_with_order: List[Tuple[int, int]] = []
+    current_page: int = 0
+    total_works: int = 0
+    title: str = ""
+    description: str = ""
+    is_last_page = False
+
+    # object data
+    artist: PixivArtist
+    images: List[PixivImage] = []
 
     def __init__(self, manga_series_id: int, current_page: int, payload: str):
         self.manga_series_id = manga_series_id
-        self.member_id: int = 0
-        self.pages_with_order: List[Tuple[int, int]] = []
         self.current_page = current_page
-        self.total_works: int = 0
-        self.title: str = ""
-        self.description: str = ""
-        self.is_last_page = False
-
-        # object data
-        self.artist: PixivArtist = None
-        self.images: List[PixivImage] = []
 
         if payload is not None:
             js = json.loads(payload)
 
             if js["error"]:
-                raise PixivException(message=js["message"], errorCode=PixivException.OTHER_ERROR, htmlPage=payload)
+                raise PixivException(
+                    message=js["message"],
+                    errorCode=PixivException.OTHER_ERROR,
+                    htmlPage=payload,
+                )
             self.parse_info(js["body"])
 
     def parse_info(self, payload):
@@ -641,7 +764,11 @@ class PixivMangaSeries:
         # possible to get multiple artists, not supported yet
         # for now just take the first artist.
         if len(payload["users"]) > 1:
-            raise PixivException(f"Multiple artist detected in manga series: {self.manga_series_id}", errorCode=PixivException.OTHER_ERROR, htmlPage=payload)
+            raise PixivException(
+                f"Multiple artist detected in manga series: {self.manga_series_id}",
+                errorCode=PixivException.OTHER_ERROR,
+                htmlPage=payload,
+            )
         self.member_id = payload["users"][0]["userId"]
 
         for work_id in payload["page"]["series"]:
@@ -651,14 +778,16 @@ class PixivMangaSeries:
 
     def print_info(self):
         works_per_page = 12
-        PixivHelper.safePrint('Manga Series Info')
-        PixivHelper.safePrint(f'Manga Series ID: {self.manga_series_id}')
-        PixivHelper.safePrint(f'Artist ID      : {self.member_id}')
+        PixivHelper.safePrint("Manga Series Info")
+        PixivHelper.safePrint(f"Manga Series ID: {self.manga_series_id}")
+        PixivHelper.safePrint(f"Artist ID      : {self.member_id}")
         if self.artist is not None:
-            PixivHelper.safePrint(f'Artist Name    : {self.artist.artistName}')
-        PixivHelper.safePrint(f'Title          : {self.title}')
-        PixivHelper.safePrint(f'Description    : {self.description}')
-        PixivHelper.safePrint(f'Pages          : {self.current_page} of {int(self.total_works/works_per_page)}')
-        PixivHelper.safePrint('Works          :')
-        for (work_id, order) in self.pages_with_order:
-            PixivHelper.safePrint(f' - [{order}] {work_id}')
+            PixivHelper.safePrint(f"Artist Name    : {self.artist.artistName}")
+        PixivHelper.safePrint(f"Title          : {self.title}")
+        PixivHelper.safePrint(f"Description    : {self.description}")
+        PixivHelper.safePrint(
+            f"Pages          : {self.current_page} of {int(self.total_works/works_per_page)}"
+        )
+        PixivHelper.safePrint("Works          :")
+        for work_id, order in self.pages_with_order:
+            PixivHelper.safePrint(f" - [{order}] {work_id}")

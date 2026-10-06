@@ -18,7 +18,7 @@ dist*/*
 old/*
 config.ini
 config.ini.error*
-listfanbox.txt
+list.txt
 *.log
 *.bat
 db.sqlite
@@ -68,3 +68,9 @@ Network Trash Folder
 Temporary Items
 .apdisk
 Error*
+
+pixiv_downloads/
+pixiv_venv/
+*.csv
+login_error.html
+test_proxy.py

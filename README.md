@@ -1,15 +1,80 @@
+# PixivUtil2 (个人分支 / Personal Fork)
+
+> 本仓库 fork 自 [Nandaka/PixivUtil2](https://github.com/Nandaka/PixivUtil2)，基于上游 `master` 分支进行了大量修改，主要面向个人使用场景进行了优化和功能扩展。
+>
+> 上游版本：20251112 ｜ 分支版本：20251112
+>
+> 本分支不对上游负责，也不保证与上游的完全兼容性。如有问题请优先参考上游文档。
+
+## 本分支的用途
+
+- 以**锚点列表（AnchorList.csv）**为核心的增量下载模式，适合长期跟踪大量画师
+- 针对个人使用习惯优化的配置默认值
+- 增强的运行日志与通知能力
+
+## 相对于上游的主要改动
+
+### ✨ 新增功能
+
+1. **选项 20：锚点列表下载（Anchor List Download）**
+   - 基于 CSV 文件 `AnchorList.csv` 管理下载队列
+   - 每条记录包含 `member_id`、`artist`、`anchor_id`（锚点作品 ID）、`anchor_date`（锚点日期）等字段
+   - **锚点机制**：以 `anchor_id` 对应的作品日期为基准，仅下载该日期之后的新作品，实现增量更新
+   - 记录下载状态：`enabled`、`has_r18`、`last_download_date`、`last_download_images`、`last_update_status`、`mark`、`ai_mark`、`information`
+   - 支持额外的备注列（如 `Note`），程序不读取也不修改，方便人工标注
+
+2. **选项 20 增强模式（`--enhanced`）** —— 通过 `AnchorDownloader.py` 实现
+   - 在同一进程内运行，完整保留终端颜色与进度条样式
+   - **Windows 11 原生通知**（可选依赖 `windows_toasts`），下载完成后弹出系统通知
+   - 代理控制：`--proxy` / `--noproxy` 可在命令行临时覆盖配置
+   - 运行日志：`--log` 将输出同时写入 `RunHistory.log`（自动去除 ANSI 转义码）
+   - 下载日志：`--download-log` 记录已下载的作品 ID
+
+3. **PowerShell 启动脚本 `PixivDownload.ps1`**
+   - 自动激活 `pixiv_venv` 虚拟环境并运行 `PixivUtil2.py`
+   - 用法：`.\PixivDownload.ps1 -s 20 --enhanced`
+
+### 🔧 配置与依赖调整
+
+| 项目 | 上游 | 本分支 | 说明 |
+|------|------|--------|------|
+| `windows_toasts` | 无 | 可选 | Windows 11 通知，未安装时自动跳过 |
+| 网络重试次数 `retry` | 3 | 10 | 提升网络不稳定时的容错 |
+| FFmpeg 参数 | `-fps_mode passthrough` | `-vsync 0` | 兼容旧版 FFmpeg（< 8.0） |
+
+### 🗑️ 移除的内容
+
+- 错误专用日志文件 `pixivutil_error.log` —— 统一使用主日志
+- `.python-version`、`test/test_PixivStats.py`、`.github/workflows/CLOSE_INACTIVE_ISSUES.yml`
+- 部分配置项：`userAgentImpersonation`、`autoAddStats`、`checkUpdatedLimitFanbox`
+
+### 📝 其他
+
+- `config.ini` 注释全面中文化
+- 版本号：`20251112`
+
+---
+
 # Requirements:
+
+- Running from Windows binary:
+
+  - minimum Windows 10 with latest updates installed.
 - Running from source code:
-  - Python 3.10+ (https://www.python.org/)
-    - Archive mode required Python 3.13+
+
+  - Python 3.8.0+ (https://www.python.org/)
   - Additional library listed in requirements.txt
   - IDE Environment: see https://github.com/Nandaka/PixivUtil2/wiki/IDE-Enviroment-(Windows)
+- Optional:
 
+  - `windows_toasts>=1.0.0` — Windows 11 原生通知（选项 20 增强模式）
 - Dependent software
+
   - FFmpeg (https://www.ffmpeg.org/) - used for converting ugoira to video.
   - [VC++ Redistributable](https://visualstudio.microsoft.com/downloads/#microsoft-visual-c-redistributable-for-visual-studio-2019) - Needed for pyexiv2 to write XMP metadata in Windows (if enabled).
 
 # Capabilities:
+
 - Download by member_id
 - Download by image_id
 - Download by tags
@@ -28,7 +93,6 @@
 - Download by artist/creator id (FANBOX)
 - Download by post id (FANBOX)
 - Download from followed artists (FANBOX)
-- Download latest posts from supported artists (FANBOX)
 - Re-encoding of all ugoira present in folder
 - Batch Download from batch_job.json (experimental)
   See https://github.com/Nandaka/PixivUtil2/wiki/Using-Batch-Job-(Experimental)
@@ -67,11 +131,13 @@ $ docker run -it --rm \
 ```
 
 # WARNING
+
 Overusage can lead to Pixiv blocking your IP for a few hours.
 
 # FAQs
 
 ## A. Usage
+
 ```
 Q1. How to paste Japanese tags to the console window?
     - Click the top-left icon -> select Edit -> Paste (Cannot use Ctrl-V), if
@@ -146,31 +212,17 @@ Q9. The downloaded images are corrupted, how to redownload it again?
       from databases (enter d, followed by 10).
     - Or, you can set alwaysCheckFileSize = True and verifyimage = True in config.ini
       and retry the download.
-      
+    
 Q10. I got this error またはメールアドレス、パスワードが正しいかチェックしてください。
     - Use your email address for the username, or check your password in config.ini
 
 Q11. Older windows support (e.g. Win7)?
     - You can try to run from source code with the latest supported python 3.x.
       See the instruction here: https://github.com/Nandaka/PixivUtil2/wiki/IDE-Enviroment-(Windows)
-      
-Q12. How do I get around Cloudflare preventing me from downloading from Fanbox
-    - Go to https://www.whatismybrowser.com/detect/what-is-my-user-agent/ and copy your user agent to the `useragent` field in config.ini
-    - Go to https://curl-cffi.readthedocs.io/en/latest/impersonate/targets.html to see a list of supported browsers for impersonation. Inside config.ini, replace userAgentImpersonation with the appropriate browser you would like to impersonate. If you do not know which browser to use, just use the latest one that closely matches your user agent.
-    - Change your user agent's version in config.ini to match the browser you are impersonating. For example, `Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0` => `Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/147.0` if you are impersonating `firefox147`
-    - Have your browser's network tab open and visit fanbox.
-    - Filter your network requests by "post" and click on any network request
-    - Go to the "headers" tab on the ribbon and scroll down to the "request headers" section.
-    - Enable "raw" text to get the real string values
-    - Copy the value from "Cookie" into `cookieFanboxTemp` in config.ini. Your cookie should be a long string that looks like `p_ab_id=<omitted>; p_ab_id_2=<omitted>; p_ab_d_id=<omitted>; cf_clearance=<omitted>; privacy_policy_agreement=<omitted>; privacy_policy_notification=<omitted>; __cf_bm=<omitted>; FANBOXSESSID=<omitted> ...`
-    - You may have more or fewer fields for your cookie. This is normal.
-    - If these steps stopped working, you probably:
-      - Logged out on fanbox
-      - Changed your IP
-      - Are using an IP address that is specifically blacklisted by Fanbox
-      - Are on the Japanese site for fanbox
 ```
+
 ## B.Bugs/Source Code/Supports
+
 ```
 Q1. Where I can report bugs?
     - Please report any bug to https://github.com/Nandaka/PixivUtil2/issues.
@@ -195,7 +247,9 @@ Q5. I got '<library_name> module no found error'
       section) and copy the file into your Lib\site-packages directory.
     - Or use pip install (google on how to use).
 ```
+
 ## C.Log Messages
+
 ```
 Q1: HTTPError: HTTP Error 404: Not Found
     - This is because the file doesn't exist in the pixiv server, usually
@@ -245,7 +299,9 @@ Q6: httperror_seek_wrapper: HTTP Error 403: request disallowed by robots.txt
 ```
 
 # Command Line Option
+
 Please refer run with `--help` for latest information.
+
 ```
   -h, --help            show this help message and exit
   -s STARTACTION, --startaction=STARTACTION
@@ -294,8 +350,6 @@ Please refer run with `--help` for latest information.
                             (optional: End Page)
                         f5 - Download from custom artist list (FANBOX)
                             (optional: End page, path to list)
-                        f7 - Download latest posts from supported artists (FANBOX)
-                            (optional: number of pages greater than 0, default: 1)
                         b - Batch Download from batch_job.json (experimental)
                             (optional: --bf=BATCH_FILE)
                         l - Export local database image_id/post_id
@@ -316,6 +370,7 @@ Please refer run with `--help` for latest information.
 ```
 
 # Error Codes
+
 - 100  = Not Logged in.
 - 1001 = User ID not exist/deleted.
 - 1002 = User Account is Suspended.
@@ -334,7 +389,9 @@ Please refer run with `--help` for latest information.
 - 9005 = Server Error.
 
 # config.ini
+
 ## [Authentication]
+
 - username
 
   Your pixiv username. Needed for OAuth. Please make sure the combination of username and password is valid in case of OAuth error. If you get error 103, please try changing username from pixiv ID to email address or the other way around.
@@ -347,58 +404,44 @@ Please refer run with `--help` for latest information.
 - cookieFanbox
 
   Cookie for fanbox.cc, normally no need to fill in.
-- cookieFanboxTemp
-
-  Workaround for Fanbox's TLS fingerprinting blacklist. See Q.12 of Usage for instructions.
 - refresh_token
 
   Used for OAuth refresh token to avoid relogin too many time. Automatically generated upon succesful OAuth login.
-- userAgentImpersonation
-
-  Parametrised argument to customise which browser PixivUtil2 will impersonate when downloading from Fanbox. Defaults to `firefox135`.
 
 ## [Pixiv]
+
 - numberofpage
 
   Number of page to be processed, put `0` to process all pages.
-  
 - r18mode
 
   Only list images tagged R18, for member, member's bookmark, and search by tag. Set to `True` to enable.
-
 - r18Type
 
   Allow filtering for R-18 type (R-18 or R-18G)
   Set `r18Type` with value `0` = both R18 and R-18G, `1` = only R18, or `2` = only R18G
-
 - dateformat
 
   Pixiv DateTime format, leave blank to use default format (YYYY-MM-DD).
   Refer to http://strftime.org/ for syntax. Quick Reference:
+
   - %d = Day, %m = Month, %Y = Year (4 digit)
   - %H = Hour (24h), %M = Minute, %S = Seconds
-
 - autoAddMember
 
   Automatically save member id to db for all download.
-
 - autoAddTag
 
   Automatically add image tags for db for all downloads.
-
 - autoAddCaption
 
   Automatically save captions for db for all downloads.
-
-- autoAddStats
-
-  Automatically save an artwork's engagement stats (view, like, bookmark, comment and response counts).
-
 - aiDisplayFewer
 
   if true, filter out AI-generated images from downloading.
 
 ## [FANBOX]
+
 - filenameFormatFanboxContent
 
   Similar to filename format, but for files inside FANBOX posts.
@@ -411,6 +454,7 @@ Please refer run with `--help` for latest information.
 - writeHtml
 
   A switch to decide whether to write FANBOX posts into HTMLs or not.
+
   - If set to `True`, article type posts will for sure be written into HTMLs, while non-article type posts are controlled with `minTextLengthForNonArticle` and `minImageCountForNonArticle`.
   - If set to `False`, no post will be written into HTMLs.
   - `filenameFormatFanboxInfo` will be used for filename.
@@ -431,32 +475,29 @@ Please refer run with `--help` for latest information.
 
   Set to `True` to download FANBOX post cover images even if they are restricted.
 - checkDBProcessHistory
-
   Each FANBOX post has a updated_date value, which will be recorded/updated in database after it is processed.
-  - When this is `True`, the values in database would be checked when processing each post. If record is no earlier than the newly retrieved date, which means that the post has not been processed at all or changed since last time, the post would be skipped.
-  - Can be combined with `checkUpdatedLimitFanbox` to stop checking more posts for the current FANBOX member after enough unchanged/already-processed posts are encountered.
-  - When this is `False`, posts will be processed anyways.
-- checkUpdatedLimitFanbox
 
-  Skip to next FANBOX member if a number of consecutive previously processed/unchanged posts are encountered for the current member while `checkDBProcessHistory` is enabled.
-  Set to `0` to disable.
+  - When this is `True`, the values in database would be checked when processing each post. If record is no earlier than the newly retrieved date, which means that the post has not been processed at all or changed since last time, the post would be skipped.
+  - When this is `False`, posts will be processed anyways.
 - listPathFanbox
 
   The list file for fanbox creators. One creator per line.
   Doesn't support custom path.
 
 ## [Network]
+
 - useproxy
 
   Set `True` to use proxy server, or `False` to disable it.
 - proxyaddress
 
   Proxy server address, use this format:
+
   - `http://<username>:<password>@<proxy_server>:<port>` or
   - `socks5://<username>:<password>@<proxy_server>:<port>` or
   - `socks4://<username>:<password>@<proxy_server>:<port>`
 - useragent
-  
+
   Browser user agent to spoof. You can check it from https://www.whatismybrowser.com/detect/what-is-my-user-agent
 - userobots
 
@@ -488,14 +529,10 @@ Please refer run with `--help` for latest information.
   Enable SSL verication, only set to `False` if you always encounter SSL Error (this disable the security)
 
 ## [Debug]
+
 - logLevel
 
   Set log level, valid values are CRITICAL, ERROR, WARNING, INFO, DEBUG, and NOTSET
-
-  Two log files are written next to the application: `pixivutil.log` with everything
-  at the configured level, and `pixivutil_error.log` with only warnings and errors,
-  so a failed run can be reviewed without searching the full log. Both rotate at
-  10MB, keeping 10 backups, and both are suppressed by `disableLog`.
 - enableDump
 
   Enable HTML Dump. Set to False to disable.
@@ -514,17 +551,20 @@ Please refer run with `--help` for latest information.
   Print http header, useful for debuggin. Set 'False' to disable.
 
 ## [IrfanView]
+
 - IrfanViewPath
 
   Set directory where IrfanView is installed (needed to start IrfanView)
 - startIrfanView
 
   Set to `True` to start IrfanView with downloaded images when exiting pixivUtil
+
   - This will create download-lists
   - Be sure to set IrfanView to load Unicode-Plugin on startup when there are unicode-named files!
 - startIrfanSlide
 
   Set to `True` to start IrfanView-Slideshow with downloaded images when exiting pixivUtil.
+
   - This will create download-lists
   - Be sure to set IrfanView to load Unicode-Plugin on startup when there are unicode-named files!
   - Slideshow-options will be same as you have set in IrfanView before!
@@ -533,6 +573,7 @@ Please refer run with `--help` for latest information.
   Set to `True` to automatically create download-lists.
 
 ## [Settings]
+
 - downloadlistdirectory
 
   list.txt path, also used for download-lists needed for `createDownloadLists` and IrfanView-Handling
@@ -590,12 +631,12 @@ Please refer run with `--help` for latest information.
   Check if downloaded files are valid image or zip. Set the value to `True` to enable.
 - writeUrlInDescription
 
-  Write all url found in the image description to a text file at the root directory. Set to `True` to enable. The list will be saved to to the application folder as url_list_<timestamp>.txt
+  Write all url found in the image description to a text file at the root directory. Set to `True` to enable. The list will be saved to to the application folder as url_list_<timestamp></timestamp>.txt
 - stripHTMLTagsFromCaption
 
   Remove all HTML tags and their contents from the image caption/description when writing metadata to files. The contents of any links will be lost, so consider enabling writeUrlInDescription to retain them.
 - urlBlacklistRegex
-  
+
   Used to filter out the url in the description using regular expression.
 - dbPath
 
@@ -611,6 +652,7 @@ Please refer run with `--help` for latest information.
   Skip the "Include Pixiv Sketch" prompt when downloading by `member_id` option by using a default option. Set the value to `y` to always include sketches or `n` to exclude sketches from the download.
 
 ## [DownloadControl]
+
 - minFileSize
 
   Skip if file size is less than minFileSize, set `0` to disable.
@@ -667,32 +709,27 @@ Please refer run with `--help` for latest information.
 - skipUnknownSize
 
   Skip downloading if the remote size is not known when `alwaysCheckFileSize` is set to True.
-
 - enablePostProcessing
-  
-  If true, it enabled post processing cmd for every downloaded files. Default: False.
 
+  If true, it enabled post processing cmd for every downloaded files. Default: False.
 - postProcessingCmd
 
   command to execute. add %filename% to pass the downloaded filename.
   **NO ERROR HANDLING AT ALL, use on your own risk.**
-
 - extensionFilter
 
   Provide a | seperated list of acceptable file extensions to download. Eg. jpg|png|gif|ugoira
-
 - downloadBuffer
 
   Download buffer before it write to disk in kiloByte, default is 512kB.
   You can change it based on your download speed. Mainly useful for smoother progress bar.
   Usually no need to change this value.
-
 - createPixivArchive
 
   Download Pixiv artworks into an archive, rather than a directory. Uses the [zipfile](https://docs.python.org/3/library/zipfile.html) library. The `.zip` extension need not be added: if the configured filenameformat is `a/b/c/d`, PixivUtil2 will automatically put images into a ZIP archive with path `a/b/c.zip`, such that the contained images have filenameformat `d`. This avoids the need to change existing configuration.
 
   > When `createPixivArchive = True`, the `pixiv_manga_image.save_name` fields of images within archives will be their basenames instead of their relative or absolute paths in the host filesystem. If a previously downloaded artwork exists as a directory, PixivUtil2 will simply create an archive next to it, and point the save path in the database to the new archive.
-
+  >
 - createPixivArchiveCompressionType
 
   Specify compression algorithm ([ZIP_STORED](https://docs.python.org/3/library/zipfile.html#zipfile.ZIP_STORED), [ZIP_DEFLATED](https://docs.python.org/3/library/zipfile.html#zipfile.ZIP_DEFLATED), [ZIP_BZIP2](https://docs.python.org/3/library/zipfile.html#zipfile.ZIP_BZIP2), or [ZIP_LZMA](https://docs.python.org/3/library/zipfile.html#zipfile.ZIP_LZMA)).
@@ -703,6 +740,7 @@ Please refer run with `--help` for latest information.
   Default value is 0.
 
 ## [FFmpeg]
+
 - ffmpeg
 
   ffmpeg executable path.
@@ -710,31 +748,32 @@ Please refer run with `--help` for latest information.
 
   Codec to be used for encoding, default is using `libvpx-vp9`.
 - ffmpegExt
-  
+
   The file extension (container format) to use for encoding. default: `webm`.
 - ffmpegparam
 
-  Parameter to be used to encode webm, default: `-lossless 0 -crf 15 -b 0 -fps_mode passthrough`.
+  Parameter to be used to encode webm, default: `-lossless 0 -crf 15 -b 0 -vsync 0`.
 - mkvcodec
 
   Codec to be used for encoding mkv, default is using `copy`.
 - mkvparam
 
-  Parameter to be used to encode mkv, default: ` `.
+  Parameter to be used to encode mkv, default: .
 - avifcodec
 
   Codec to be used for encoding avif, default is using `libaom-av1`.
 - avifparam
 
-  Parameter to be used to encode avif, default: `-cpu-used 4 -crf 0 -row-mt 1 -tile-columns 2 -tile-rows 2 -fps_mode passthrough`.
+  Parameter to be used to encode avif, default: `-cpu-used 4 -crf 0 -row-mt 1 -tile-columns 2 -tile-rows 2 -vsync 0`.
 - webpcodec
 
   Codec to be used for encoding webm, default is using `libwebp`.
 - webpparam
 
-  Parameter to be used to encode webm, default: `-lossless 0 -compression_level 5 -quality 100 -loop 0 -fps_mode passthrough`.
+  Parameter to be used to encode webm, default: `-lossless 0 -compression_level 5 -quality 100 -loop 0 -vsync 0`.
 
 ## [Ugoira]
+
 - writeugoirainfo
 
   If set to `True`, it will write the info of ugoira frames to a `filename(Manga)Infoformat`+.zip.js file. `writeImageJSON` contains this info as well.
@@ -775,6 +814,7 @@ Please refer run with `--help` for latest information.
   Only active if `createUgoira = True`.
 
 ## [Filename]
+
 - filenameformat
 
   The format for the filename, reserved/illegal character will be replaced with underscore '_', repeated space will be trimmed to single space. The filename (+full path) will be trimmed to the first 250 character (Windows limitation).
@@ -818,12 +858,14 @@ Please refer run with `--help` for latest information.
   For sanitizing filenames with custom rules. Supports regular expressions.
   For detailed syntax, please refer to 'Bad chars' section.
 - customCleanUpRe
-  
+
   TODO.
 
 # Filename Format Syntax
+
 Available for filenameFormat, filenameMangaFormat, avatarNameFormat, filenameInfoFormat,
 filenameFormatFanboxCover, filenameFormatFanboxContent and filenameFormatFanboxInfo:
+
 ```
 -> %member_token%
    Member token, might change.
@@ -844,7 +886,9 @@ filenameFormatFanboxCover, filenameFormatFanboxContent and filenameFormatFanboxI
    The correct file extension is already appended to the end of all files.
    This is available if you want to add more, or want to add the image's file extension to info files etc.
 ```
+
 Available for filenameFormat and filenameMangaFormat:
+
 ```
 -> %image_id%
    Image id, in number. (Post id for FANBOX and sketches)
@@ -896,36 +940,45 @@ Available for filenameFormat and filenameMangaFormat:
 -> %AI%
    Add 'AI' for AI-generated images (aiType==2).
 ```
+
 Specific for PixivSketch (option 1 if PixivSketch included, s1, and s2 ):
+
 ```
 -> %sketch_member_id%
    Pixiv Sketch artist id, might be different from Pixiv's artist id.
 ```
+
 Specific for Fanbox:
+
 ```
 -> %fanbox_name%
    Fanbox name, might be different from Pixiv's artist name.
    Useful if the artist is suspended from Pixiv and there is no record in the DB to avoid interuption.
 ```
+
 # list.txt Format
+
 - This file should be build in the following way, white space will be trimmed,
   see example:
+
 ```
 member_id1 directory1
 member_id2 directory2
   ...
 #comment - lines starting with # will be ignored
 ```
+
 - member_id = in number only
 - directory = path to download-directory for member_id
+
   - %root%\directory will save directory in rootFolder specified in config.ini
     \directory will save the folder in the root of your PixivUtil-drive
   - C:\directory will save the folder in drive C: (change to any other
     drive as you wish)
   - .\directory will save the folder in same directory as PixivUtil2.exe
   - directory-path can end with \ or not
-
 - Examples for list:
+
 ```
 ### START EXAMPLE LIST####
 # this is a comment line, lines starting with # will be ignored
@@ -966,31 +1019,36 @@ http://www.pixiv.net/member_illust.php?id=123456
 ```
 
 # tags.txt Format
+
 - This file will be used as source for Download from tags list (7)
 - Separate tags with space, ensure to set Use Wildcard to 'y'.
 - Each line will be treated as one search.
 - Save the files with UTF-8 encoding.
 
 # suppress_tags.txt Format
+
 - This file is used for suppressing the tags from being used in %tags%.
 - If matches, the tags will be removed from filename.
 - Each line is one tag only.
 - Save the files with UTF-8 encoding
 
-
 # blacklist_tags.txt Format
+
 - This file is used for tag blacklist checking for downloading image.
 - If matches, the image will be skipped.
 - Each line is one tag only.
 - Save the files with UTF-8 encoding
 
 # blacklist_members.txt Format
+
 - similar to list.txt, but without custom folder.
 
 # HTML Format
+
 - A simple default format will be used when no 'template.html' is provided.
 - Urls originally in the post will be overwritten with local paths.
 - Currently available syntaxes are:
+
 ```
 -> %coverImage%
    A 'div' tag with its 'class' set to 'cover', and a child 'img' tag with 
@@ -1020,14 +1078,17 @@ http://www.pixiv.net/member_illust.php?id=123456
    A 'div' tag with its 'class' set to 'non-article text' and all paragraphs
    of text put in 'p' tags as its children tokens.
 ```
-- If there is a 'div' tag with 'main' in its 'class' in the template, 'article' or 
+
+- If there is a 'div' tag with 'main' in its 'class' in the template, 'article' or
   'non-article' would be appended to its 'class' depending on the type of the post.
 
 # Bad chars
+
 - Originally for removing single bad chars for use between different OSs.
 - Now also supports strings and regular expressions.
 - The value set in option `customBadChars` would be parsed from left to right.
 - Currently available syntaxes are:
+
 ```
 -> %replace<default>(your_default_replace_with)%
    Use this syntax to define default value to replace with.
@@ -1043,12 +1104,14 @@ http://www.pixiv.net/member_illust.php?id=123456
    If multiple "pattern"s or "replace"s share the same group name, the last value set
    would be used.
 ```
+
 - Chars/string not wrapped with syntaxes above would be considered single chars
   to be replaced with global replacement char/string, "_" if unset.
 - When configuration file gets written to file, `customBadChars` would be
   replaced with parsed valid value. Single chars would be placed first, followed by
   `%replace<default>(your_default_replace_with)%`, and each group.
 - Examples:
+
 ```
 # If you just want to replace some single chars with "_"
 \@[]
@@ -1064,7 +1127,9 @@ http://www.pixiv.net/member_illust.php?id=123456
 ```
 
 # Development
+
 PixivUtil2 posesses robust test suite. To run it, one needs pytest suite:
+
 ```
 pip install --user pytest
 
@@ -1072,6 +1137,7 @@ pytest -v ./test_*
 ```
 
 # Credits/Contributor
+
 - Nandaka (Main Developer) - https://nandaka.devnull.zone
 - Yavos (Contributor)
 - Joe (Contributor)
@@ -1105,7 +1171,7 @@ pytest -v ./test_*
 ** If I forget someone, please send me a pull request with the commit/merge id.
 
 # License Agreement
-See LICENSE.
 
+See LICENSE.
 
 [![Run on Repl.it](https://repl.it/badge/github/Nandaka/PixivUtil2)](https://repl.it/github/Nandaka/PixivUtil2)
