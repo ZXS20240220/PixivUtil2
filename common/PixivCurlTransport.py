@@ -15,12 +15,19 @@ This module installs a mechanize transport handler that sends every
 http/https request through curl_cffi while leaving mechanize's cookie jar,
 redirect processor, error processor and retry logic untouched, so the rest
 of the application keeps working unchanged.
+
+Streaming
+---------
+Requests use ``stream=True``. Besides avoiding buffering whole images in
+memory, this changes curl's timeout from a hard *total transfer* cap
+(``CURLOPT_TIMEOUT``) to a connect timeout plus a low-speed timeout
+(``CURLOPT_LOW_SPEED_LIMIT/TIME``): a download that keeps receiving data,
+however slowly, is never killed just for being large/slow, while a stalled
+connection still aborts after the configured number of seconds.
 """
 
 import email
 import http.client
-import io
-from numbers import Real
 from urllib.error import URLError
 
 import curl_cffi
@@ -40,6 +47,108 @@ _HOP_BY_HOP = ("connection", "host", "proxy-authorization", "te",
 # The "firefox" alias always maps to the newest Firefox profile bundled with
 # the installed curl_cffi release.
 _DEFAULT_IMPERSONATE = "firefox"
+
+
+class _CurlStreamReader:
+    """File-like adapter over curl_cffi's chunk iterator.
+
+    Implements the small interface ``mechanize.closeable_response`` needs:
+    ``read``/``readline``/``readlines``/``__iter__``/``close``. curl errors
+    raised while pulling chunks are converted to ``URLError`` so the
+    application's existing network-error retry logic handles them.
+    """
+
+    def __init__(self, curl_response):
+        self._r = curl_response
+        self._chunks = iter(curl_response.iter_content())
+        self._buf = b""
+        self._eof = False
+        self._closed = False
+
+    def _pull_chunk(self):
+        """Fetch the next decoded chunk; b"" means EOF. URLError on failure."""
+        if self._eof:
+            return b""
+        try:
+            chunk = next(self._chunks)
+        except StopIteration:
+            chunk = b""
+        except Exception as ex:  # curl_cffi CurlError/RequestException
+            self._eof = True
+            raise URLError(str(ex)) from ex
+        if chunk == b"":
+            self._eof = True
+        return chunk
+
+    def read(self, size=-1):
+        if self._closed:
+            raise ValueError("read of closed file")
+        if size is None or size < 0:
+            parts = [self._buf]
+            self._buf = b""
+            while not self._eof:
+                parts.append(self._pull_chunk())
+            return b"".join(parts)
+
+        while len(self._buf) < size and not self._eof:
+            chunk = self._pull_chunk()
+            if chunk:
+                self._buf += chunk
+        data, self._buf = self._buf[:size], self._buf[size:]
+        return data
+
+    def readline(self, size=-1):
+        if self._closed:
+            raise ValueError("readline of closed file")
+        while b"\n" not in self._buf and not self._eof:
+            chunk = self._pull_chunk()
+            if not chunk:
+                break
+            self._buf += chunk
+        idx = self._buf.find(b"\n")
+        if idx >= 0:
+            end = idx + 1
+            line, self._buf = self._buf[:end], self._buf[end:]
+        else:
+            line, self._buf = self._buf, b""
+        if size is not None and 0 <= size < len(line):
+            self._buf = line[size:] + self._buf
+            line = line[:size]
+        return line
+
+    def readlines(self, hint=-1):
+        lines = []
+        total = 0
+        while True:
+            line = self.readline()
+            if not line:
+                break
+            lines.append(line)
+            total += len(line)
+            if hint and hint > 0 and total >= hint:
+                break
+        return lines
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        line = self.readline()
+        if not line:
+            raise StopIteration
+        return line
+
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        self._eof = True
+        try:
+            # Signals the background curl thread to stop and releases the
+            # curl handle (safe to call even if the stream was fully consumed).
+            self._r.close()
+        except Exception:
+            pass
 
 
 class CurlCffiHandler(BaseHandler):
@@ -100,9 +209,8 @@ class CurlCffiHandler(BaseHandler):
         return headers
 
     @staticmethod
-    def _build_message(curl_response, body_length):
+    def _build_message(curl_response):
         """Rebuild an RFC822/HTTPMessage header object from curl_cffi output."""
-        header_pairs = []
         multi_items = getattr(curl_response.headers, "multi_items", None)
         if callable(multi_items):
             header_pairs = list(multi_items())
@@ -113,10 +221,10 @@ class CurlCffiHandler(BaseHandler):
             raw_headers, _class=http.client.HTTPMessage
         )
 
-        # libcurl has already decompressed the body; leaving Content-Encoding
-        # in place would make mechanize's gzip processor decode it twice.
+        # libcurl has already decompressed the stream; leaving
+        # Content-Encoding in place would make mechanize's gzip processor
+        # decode it twice. Content-Length is kept as sent by the server.
         del message["Content-Encoding"]
-        message["Content-Length"] = str(body_length)
         return message
 
     def _do_open(self, req):
@@ -125,12 +233,18 @@ class CurlCffiHandler(BaseHandler):
 
         timeout = config.timeout
         request_timeout = getattr(req, "timeout", None)
-        if isinstance(request_timeout, Real) and request_timeout > 0:
+        if isinstance(request_timeout, (int, float)) and not isinstance(
+            request_timeout, bool
+        ) and request_timeout > 0:
             timeout = request_timeout
 
         headers = self._build_headers(req)
 
         try:
+            # stream=True: headers arrive (and header-stage errors raise)
+            # before this returns; the body is pulled lazily via the reader.
+            # The scalar timeout becomes connect-timeout + low-speed-time,
+            # i.e. abort only when no data arrives for `timeout` seconds.
             curl_response = curl_requests.request(
                 method=req.get_method(),
                 url=req.get_full_url(),
@@ -140,6 +254,7 @@ class CurlCffiHandler(BaseHandler):
                 timeout=timeout,
                 verify=bool(config.enableSSLVerification),
                 impersonate=self._impersonate,
+                stream=True,
                 # Let mechanize's redirect/cookie processors handle 3xx so
                 # Set-Cookie on redirect responses reaches the cookie jar.
                 allow_redirects=False,
@@ -150,14 +265,11 @@ class CurlCffiHandler(BaseHandler):
             self._logger.debug("curl_cffi request failed: %r", ex)
             raise URLError(str(ex)) from ex
 
-        body = curl_response.content or b""
-        message = self._build_message(curl_response, len(body))
+        message = self._build_message(curl_response)
         reason = getattr(curl_response, "reason", None) or "OK"
 
-        # BytesIO provides read/readline/readlines, which is everything
-        # closeable_response and the seek wrapper need.
         response = closeable_response(
-            io.BytesIO(body),
+            _CurlStreamReader(curl_response),
             message,
             req.get_full_url(),
             curl_response.status_code,
