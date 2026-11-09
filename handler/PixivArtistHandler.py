@@ -40,10 +40,12 @@ def process_member(
 
     list_page = None
 
+    # 进度前缀(形如 "(50/112) ")来自调用方，附加到本行以便终端能看出处理进度
+    prefix_txt = f"{str(title_prefix).strip()} " if title_prefix else ""
     msg = (
         Fore.YELLOW
         + Style.BRIGHT
-        + f"Processing Member Id: {member_id}"
+        + f"{prefix_txt}Processing Member Id: {member_id}"
         + Style.RESET_ALL
     )
     PixivHelper.print_and_log("info", msg)

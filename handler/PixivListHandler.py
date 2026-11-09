@@ -732,12 +732,14 @@ def _apply_result_to_record(
     member_id,
     anchor_image_id,
     callbacks=None,
+    progress_prefix="",
 ):
     """把 result_dict 中的下载结果统一应用到 record。
 
     被以下两个路径共同调用，避免逻辑重复与中断场景漏更新:
       1) PixivListHandler.process_anchor_list 正常完成后的 if result_dict: 块
       2) KeyboardInterrupt 在 process_member 内部 raise 之前的应急更新
+    progress_prefix: 进度前缀，形如 "(50/112) "，用于标识当前作者序号。
     返回 True 表示 record 被修改过(用于上层 any_record_changed 判定)。
     """
     if not result_dict:
@@ -748,7 +750,7 @@ def _apply_result_to_record(
         )
         PixivHelper.print_and_log(
             "warn",
-            f"No result for member_id={member_id}. Marking as skipped.",
+            f"{progress_prefix}No result for member_id={member_id}. Marking as skipped.",
         )
         if callbacks and callbacks.get("on_member_skip"):
             callbacks["on_member_skip"](
@@ -779,7 +781,7 @@ def _apply_result_to_record(
         )
         PixivHelper.print_and_log(
             "warn",
-            f"Anchor {anchor_image_id} not found for member_id={member_id}.",
+            f"{progress_prefix}Anchor {anchor_image_id} not found for member_id={member_id}.",
         )
         # 属于 SKIP 类（锚点图片不存在/被删除），写入下载日志
         if (
@@ -811,7 +813,7 @@ def _apply_result_to_record(
                     record["has_r18"] = r18_result
                     PixivHelper.print_and_log(
                         "info",
-                        f"Member {member_id}: Has R18 works updated = {r18_result}",
+                        f"{progress_prefix}Member {member_id}: Has R18 works updated = {r18_result}",
                     )
 
         if anchor_updated or downloaded_count > 0 or skipped_count > 0:
@@ -831,7 +833,7 @@ def _apply_result_to_record(
                 # USER_ID_NOT_EXISTS/USER_ID_SUSPENDED/OTHER_MEMBER_ERROR 分支）
                 PixivHelper.print_and_log(
                     "warn",
-                    f"Member ID {member_id} not found or suspended on Pixiv for member_id={member_id}.",
+                    f"{progress_prefix}Member ID {member_id} not found or suspended on Pixiv for member_id={member_id}.",
                 )
                 # 属于 SKIP 类（作者不存在），写入下载日志
                 if (
@@ -847,7 +849,7 @@ def _apply_result_to_record(
             elif "Network error" in skip_reason:
                 PixivHelper.print_and_log(
                     "warn",
-                    f"Network error prevented anchor verification for member_id={member_id}. Skipping without modifying anchor.",
+                    f"{progress_prefix}Network error prevented anchor verification for member_id={member_id}. Skipping without modifying anchor.",
                 )
                 if (
                     callbacks
@@ -921,6 +923,8 @@ def process_anchor_list(caller, config, anchor_file=None, callbacks=None):
         for record in records:
             member_id = record["member_id"]
             anchor_image_id = record["anchor_id"]
+            # 进度前缀: 形如 "(50/112) ",用于标明当前处理到第几个作者/总数
+            progress_prefix = f"({current_member}/{total_members}) "
 
             before_snapshot = _snapshot_record(record)
 
@@ -928,9 +932,9 @@ def process_anchor_list(caller, config, anchor_file=None, callbacks=None):
                 current_member = current_member + 1
                 PixivHelper.print_and_log(
                     "info",
-                    f"Skipping member_id={member_id}: Disabled (Enabled=false).",
+                    f"{progress_prefix}Skipping member_id={member_id}: Disabled (Enabled=false).",
                 )
-                print(f"skipped for member id = {member_id} (disabled).")
+                print(f"{progress_prefix}skipped for member id = {member_id} (disabled).")
                 print("")
                 if callbacks and callbacks.get("on_member_skip"):
                     callbacks["on_member_skip"](member_id, "画师已禁用", is_error=False)
@@ -946,9 +950,9 @@ def process_anchor_list(caller, config, anchor_file=None, callbacks=None):
                 current_member = current_member + 1
                 PixivHelper.print_and_log(
                     "warn",
-                    f"Skipping member_id={member_id}: Anchor ID is empty.",
+                    f"{progress_prefix}Skipping member_id={member_id}: Anchor ID is empty.",
                 )
-                print(f"skipped for member id = {member_id} (empty anchor).")
+                print(f"{progress_prefix}skipped for member id = {member_id} (empty anchor).")
                 print("")
                 if callbacks and callbacks.get("on_member_skip"):
                     callbacks["on_member_skip"](member_id, "锚点ID为空", is_error=True)
@@ -965,10 +969,10 @@ def process_anchor_list(caller, config, anchor_file=None, callbacks=None):
                 current_member = current_member + 1
                 PixivHelper.print_and_log(
                     "warn",
-                    f"Member ID {member_id} not found or suspended on Pixiv for member_id={member_id}.",
+                    f"{progress_prefix}Member ID {member_id} not found or suspended on Pixiv for member_id={member_id}.",
                 )
                 print(
-                    f"skipped for member id = {member_id} (member not found on Pixiv)."
+                    f"{progress_prefix}skipped for member id = {member_id} (member not found on Pixiv)."
                 )
                 print("")
                 if callbacks and callbacks.get("on_member_skip"):
@@ -979,7 +983,7 @@ def process_anchor_list(caller, config, anchor_file=None, callbacks=None):
             elif member_exists is None:
                 PixivHelper.print_and_log(
                     "warn",
-                    f"Cannot verify member_id={member_id} (network error?). Proceeding anyway.",
+                    f"{progress_prefix}Cannot verify member_id={member_id} (network error?). Proceeding anyway.",
                 )
 
             # PixivHelper.print_and_log(
@@ -995,7 +999,7 @@ def process_anchor_list(caller, config, anchor_file=None, callbacks=None):
                     record["has_r18"] = r18_result
                     PixivHelper.print_and_log(
                         "info",
-                        f"Member {member_id}: Has R18 works = {r18_result}",
+                        f"{progress_prefix}Member {member_id}: Has R18 works = {r18_result}",
                     )
 
             if _snapshot_record(record) != before_snapshot:
@@ -1013,12 +1017,12 @@ def process_anchor_list(caller, config, anchor_file=None, callbacks=None):
                 if latest_id and latest_id == anchor_image_id:
                     PixivHelper.print_and_log(
                         "info",
-                        f"Member {member_id}: Anchor {anchor_image_id} is already "
+                        f"{progress_prefix}Member {member_id}: Anchor {anchor_image_id} is already "
                         f"the latest work. Skipping (no changes).",
                     )
                     current_member = current_member + 1
                     print(
-                        f"skipped for member id = {member_id} (anchor already latest)."
+                        f"{progress_prefix}skipped for member id = {member_id} (anchor already latest)."
                     )
                     print("")
                     if callbacks and callbacks.get("on_member_skip"):
@@ -1047,7 +1051,7 @@ def process_anchor_list(caller, config, anchor_file=None, callbacks=None):
             had_retry = False
             while True:
                 try:
-                    prefix = f"[{current_member} of {total_members}] "
+                    prefix = progress_prefix
                     PixivArtistHandler.process_member(
                         caller,
                         config,
@@ -1080,6 +1084,7 @@ def process_anchor_list(caller, config, anchor_file=None, callbacks=None):
                                 member_id,
                                 anchor_image_id,
                                 callbacks=callbacks,
+                                progress_prefix=progress_prefix,
                             )
                             if _snapshot_record(record) != before_snapshot:
                                 any_record_changed = True
@@ -1107,7 +1112,7 @@ def process_anchor_list(caller, config, anchor_file=None, callbacks=None):
                         if is_network_error:
                             PixivHelper.print_and_log(
                                 "warn",
-                                f"Network error for member_id={member_id}, "
+                                f"{progress_prefix}Network error for member_id={member_id}, "
                                 f"auto-retry exhausted. Prompting user...",
                             )
                             print()
@@ -1124,7 +1129,7 @@ def process_anchor_list(caller, config, anchor_file=None, callbacks=None):
                                 # 用户要求重试：清空 stale 数据，重置计数器，重新走完整流程
                                 PixivHelper.print_and_log(
                                     "info",
-                                    f"User opted to retry member_id={member_id}. Resetting retry counter.",
+                                    f"{progress_prefix}User opted to retry member_id={member_id}. Resetting retry counter.",
                                 )
                                 result_dict.clear()
                                 retry_count = 0
@@ -1136,19 +1141,20 @@ def process_anchor_list(caller, config, anchor_file=None, callbacks=None):
                                 # 用户要求退出：清理并抛出 KeyboardInterrupt 走正常中断流程
                                 PixivHelper.print_and_log(
                                     "warn",
-                                    f"User opted to quit on network error at member_id={member_id}.",
+                                    f"{progress_prefix}User opted to quit on network error at member_id={member_id}.",
                                 )
                                 result_dict.clear()
                                 raise KeyboardInterrupt()
                             # else: skip —— 落到下面的 break，标记此作者失败，继续下一个
                             PixivHelper.print_and_log(
                                 "info",
-                                f"User opted to skip member_id={member_id} due to network error.",
+                                f"{progress_prefix}User opted to skip member_id={member_id} due to network error.",
                             )
                         else:
                             # 非网络错误（作者不存在、无图片等业务错误）：原有自动跳过逻辑不变
                             PixivHelper.print_and_log(
-                                "error", f"Giving up member_id: {member_id} ==> {ex}"
+                                "error",
+                                f"{progress_prefix}Giving up member_id: {member_id} ==> {ex}",
                             )
 
                         if result_dict:
@@ -1170,7 +1176,7 @@ def process_anchor_list(caller, config, anchor_file=None, callbacks=None):
                     # result_dict 的完整字段,清空不会影响正常流程。
                     result_dict.clear()
                     print(
-                        f"Something wrong, retrying after 2 second ({retry_count}) ==> {ex}"
+                        f"{progress_prefix}Something wrong, retrying after 2 second ({retry_count}) ==> {ex}"
                     )
                     PixivHelper.print_delay(2)
 
@@ -1181,13 +1187,14 @@ def process_anchor_list(caller, config, anchor_file=None, callbacks=None):
                 member_id,
                 anchor_image_id,
                 callbacks=callbacks,
+                progress_prefix=progress_prefix,
             )
 
             if _snapshot_record(record) != before_snapshot:
                 any_record_changed = True
 
             current_member = current_member + 1
-            print(f"done for member id = {member_id}.")
+            print(f"{progress_prefix}done for member id = {member_id}.")
             dl_count = 0
             anchor_upd = False
             artist_n = record.get("artist", "")
