@@ -1061,6 +1061,7 @@ def process_anchor_list(caller, config, anchor_file=None, callbacks=None):
                         anchor_image_id=anchor_image_id,
                         anchor_file=None,
                         result_dict=result_dict,
+                        callbacks=callbacks,
                     )
                     # 成功完成:若之前发生过重试,说明网络已恢复,此时才上报"已恢复"
                     if had_retry and callbacks and callbacks.get("on_recovered_error"):

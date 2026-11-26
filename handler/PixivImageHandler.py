@@ -46,6 +46,7 @@ def process_image(
     is_unlisted=False,
     file_count_ref=None,
     file_names_ref=None,
+    failure_reason_ref=None,
 ) -> int:
     # caller function/method
     # TODO: ideally to be removed or passed as argument
@@ -196,6 +197,8 @@ def process_image(
             else:
                 PixivHelper.print_and_log("error", f"Image ID ({image_id}): {ex}")
             PixivHelper.print_and_log("error", f"Stack Trace: {sys.exc_info()}")
+            if failure_reason_ref is not None:
+                failure_reason_ref.append(f"medium page: {ex.message}")
             return PixivConstant.PIXIVUTIL_NOT_OK
         except Exception as ex:
             PixivHelper.print_and_log("error", f"Image ID ({image_id}): {ex}")
@@ -206,6 +209,8 @@ def process_image(
             PixivHelper.print_and_log("error", f"Stack Trace: {sys.exc_info()}")
             exc_type, exc_value, exc_traceback = sys.exc_info()
             traceback.print_exception(exc_type, exc_value, exc_traceback)
+            if failure_reason_ref is not None:
+                failure_reason_ref.append(f"medium page: {ex}")
             return PixivConstant.PIXIVUTIL_NOT_OK
 
         download_image_flag = True
@@ -1037,6 +1042,24 @@ def process_image(
         if parse_medium_page is not None:
             del parse_medium_page
         gc.collect()
+
+        # 收口:若本图最终失败且前面分支未记录原因(如下载/归档失败),
+        # 尝试从 caller.__errorList 取最近一条匹配该 image_id 的错误信息。
+        if (
+            result == PixivConstant.PIXIVUTIL_NOT_OK
+            and failure_reason_ref is not None
+            and not failure_reason_ref
+        ):
+            reason = "下载失败"
+            try:
+                err_list = getattr(caller, "__errorList", None) or []
+                for e in reversed(err_list):
+                    if str(e.get("id")) == str(image_id):
+                        reason = e.get("message") or reason
+                        break
+            except Exception:
+                pass
+            failure_reason_ref.append(reason)
 
         return result
     except Exception as ex:

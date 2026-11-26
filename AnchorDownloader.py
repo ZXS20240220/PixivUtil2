@@ -132,6 +132,8 @@ class DownloadMonitor:
         self._interactive_event = Event()
         self.anchor_missing = {}
         self.skipped_authors = {}
+        # 最终下载失败的图片列表(只记录最终未成功的;中途失败后重试成功的不计入)
+        self.failed_images = []
         self._anchor_dates = {}
         self._anchor_dates_loaded = False
 
@@ -260,6 +262,23 @@ class DownloadMonitor:
             except Exception:
                 pass
 
+    def on_image_failed(self, member_id, image_id, reason):
+        mid = str(member_id)
+        key = (mid, str(image_id))
+        # 同一图片只记一次(取首次失败原因),避免重复上报
+        for item in self.failed_images:
+            if (item["member_id"], item["image_id"]) == key:
+                return
+        artist_name = self.initial_data.get(mid, {}).get("artist", mid)
+        self.failed_images.append(
+            {
+                "member_id": mid,
+                "image_id": str(image_id),
+                "artist": artist_name,
+                "reason": str(reason)[:120],
+            }
+        )
+
     def on_recovered_error(self):
         self.recovered_error_count += 1
 
@@ -282,6 +301,7 @@ class DownloadMonitor:
         self._total_downloaded_images = 0
         self._interrupted = False
         self.skipped_authors = {}
+        self.failed_images = []
         self._processed_mids.clear()
         self._network_skip_count = 0
         self._network_skip_samples = []
@@ -335,7 +355,7 @@ class DownloadMonitor:
             title = "Pixiv 下载任务异常"
         elif self._interrupted:
             title = "Pixiv 下载任务已中断"
-        elif self.skipped_authors:
+        elif self.skipped_authors or self.failed_images:
             title = "Pixiv 下载任务部分完成"
         else:
             title = "Pixiv 下载任务全部完成"
@@ -367,6 +387,9 @@ class DownloadMonitor:
         if self.recovered_error_count > 0:
             parts.append(f"网络重试: {self.recovered_error_count} 次 (已恢复)")
 
+        if self.failed_images:
+            parts.append(f"下载失败图片: {len(self.failed_images)} 张")
+
         msg = "\n".join(parts)
         if artist_lines:
             msg += "\n\n" + "\n".join(artist_lines)
@@ -380,6 +403,17 @@ class DownloadMonitor:
                 name = self.initial_data.get(mid, {}).get("artist", mid)
                 missing_lines.append(f"[{name}]: {msg_line}")
             msg += "\n\n锚点未找到的成员:\n" + "\n".join(missing_lines)
+
+        if self.failed_images:
+            failed_lines = []
+            for item in self.failed_images[:10]:
+                failed_lines.append(
+                    f"[{item['artist']}({item['member_id']})] "
+                    f"image_id={item['image_id']}: {item['reason']}"
+                )
+            if len(self.failed_images) > 10:
+                failed_lines.append(f"...等共 {len(self.failed_images)} 张")
+            msg += "\n\n下载失败的图片:\n" + "\n".join(failed_lines)
 
         if (
             self.download_log_path
@@ -559,7 +593,7 @@ class DownloadMonitor:
                         status = "error"
                     elif self._interrupted:
                         status = "interrupted"
-                    elif self.skipped_authors:
+                    elif self.skipped_authors or self.failed_images:
                         status = "incomplete"
                     else:
                         status = "completed"
@@ -592,6 +626,15 @@ class DownloadMonitor:
                                 "artist", mid
                             )
                             f.write(f"  - {artist_name}({mid}): {reason}\n")
+
+                    if self.failed_images:
+                        f.write("-" * 20 + "\n")
+                        f.write(f"Failed {len(self.failed_images)} images:\n")
+                        for item in self.failed_images:
+                            f.write(
+                                f"  - [{item['artist']}({item['member_id']})] "
+                                f"image_id={item['image_id']}: {item['reason']}\n"
+                            )
 
                     if status == "interrupted":
                         f.write("Note: Download was interrupted before completion.\n")
@@ -851,7 +894,10 @@ def run_anchor_download(
         print(f"  完成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
         if exit_code == 0:
-            print(f"  状态: 成功完成")
+            if monitor.failed_images or monitor.skipped_authors:
+                print(f"  状态: 部分完成")
+            else:
+                print(f"  状态: 成功完成")
         elif exit_code == 1:
             print(f"  状态: 已中断")
         else:
@@ -871,6 +917,16 @@ def run_anchor_download(
             print(f"  致命错误: {len(monitor.fatal_errors)} 个")
             for err in monitor.fatal_errors[-3:]:
                 print(f"    - {err[:100]}")
+
+        if monitor.failed_images:
+            print(f"  下载失败的图片: {len(monitor.failed_images)} 张")
+            for item in monitor.failed_images[-10:]:
+                print(
+                    f"    - [{item['artist']}({item['member_id']})] "
+                    f"image_id={item['image_id']}: {item['reason']}"
+                )
+            if len(monitor.failed_images) > 10:
+                print(f"    ...等共 {len(monitor.failed_images)} 张")
 
         print(f"{'='*60}\n")
 
@@ -961,12 +1017,16 @@ def _build_callbacks(monitor, progress_interval, send_notifications, log_fh):
             except Exception:
                 pass
 
+    def on_image_failed(member_id, image_id, reason):
+        monitor.on_image_failed(member_id, image_id, reason)
+
     def on_all_complete():
         pass
 
     return {
         "on_member_skip": on_member_skip,
         "on_download_complete": on_download_complete,
+        "on_image_failed": on_image_failed,
         "on_recovered_error": on_recovered_error,
         "on_fatal_error": on_fatal_error,
         "on_all_complete": on_all_complete,

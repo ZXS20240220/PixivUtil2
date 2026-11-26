@@ -28,6 +28,7 @@ def process_member(
     anchor_image_id=None,
     anchor_file=None,
     result_dict=None,
+    callbacks=None,
 ):
     # caller function/method
     # TODO: ideally to be removed or passed as argument
@@ -502,8 +503,10 @@ def process_member(
                 ui_prefix = f"{Fore.LIGHTGREEN_EX}[{no_of_images} of {artist.totalImages}]{Style.RESET_ALL} "
                 # PixivHelper.print_and_log(None, ui_prefix)
                 retry_count = 0
+                img_failure_reasons = []
                 while True:
                     try:
+                        img_failure_reasons.clear()
                         if artist.totalImages > 0:
                             total_image_page_count = artist.totalImages
                             if offset_stop > 0 and offset_stop < total_image_page_count:
@@ -532,6 +535,7 @@ def process_member(
                                 ui_prefix=ui_prefix,
                                 file_count_ref=file_count_ref,
                                 file_names_ref=file_names_ref,
+                                failure_reason_ref=img_failure_reasons,
                             )
 
                         break
@@ -644,6 +648,20 @@ def process_member(
                                         )
                                     except Exception:
                                         pass
+                            # 当前 image 最终失败(重试耗尽或用户选择跳过),
+                            # 上报到结果汇总;若后续整成员被重试并成功,这里不会到达。
+                            if callbacks and callbacks.get("on_image_failed"):
+                                reason = (
+                                    img_failure_reasons[-1]
+                                    if img_failure_reasons
+                                    else str(ex)[:120]
+                                )
+                                try:
+                                    callbacks["on_image_failed"](
+                                        member_id, image_id, reason
+                                    )
+                                except Exception:
+                                    pass
                             return
                         retry_count = retry_count + 1
                         PixivHelper.print_and_log(
@@ -662,6 +680,19 @@ def process_member(
                 if result == PixivConstant.PIXIVUTIL_NOT_OK:
                     # 图片下载失败(如 medium 页 SERVER_ERROR 被吞掉返回 NOT_OK)
                     page_failed_count = page_failed_count + 1
+                    # 上报到结果汇总:只看最终结果——若后续重试成功,这里不会到达。
+                    if callbacks and callbacks.get("on_image_failed"):
+                        reason = (
+                            img_failure_reasons[-1]
+                            if img_failure_reasons
+                            else "下载失败"
+                        )
+                        try:
+                            callbacks["on_image_failed"](
+                                member_id, image_id, reason
+                            )
+                        except Exception:
+                            pass
                 if result in (
                     PixivConstant.PIXIVUTIL_SKIP_DUPLICATE,
                     PixivConstant.PIXIVUTIL_SKIP_LOCAL_LARGER,
