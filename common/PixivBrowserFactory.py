@@ -249,6 +249,10 @@ class PixivBrowser(mechanize.Browser):
             retry = self._config.retry
 
         RETRYABLE_HTTP_CODES = {
+            # 403 在 Pixiv/Cloudflare 侧多为限流或反爬拦截的瞬时响应(本项目日志中
+            # 出现的 "HTTP Error 403: OK" 常伴随 SSL 连接抖动),重试后可恢复;
+            # FANBOX 的 challenge 403 已在下方提前 return,不受此处影响。
+            403,
             408,
             425,
             429,
@@ -937,7 +941,25 @@ class PixivBrowser(mechanize.Browser):
             js_image_info = (
                 f"https://www.pixiv.net/ajax/illust/{image_id}?lang={_api_locale}"
             )
-            response = self.getPixivPage(js_image_info, enable_cache=False)
+            # ajax/illust 接口偶发返回 403/限流(瞬时错误),此处加一次重试,
+            # 与上方 artworks 页的重试保持一致,避免单次瞬时失败就放弃该图。
+            for attempt in range(2):
+                try:
+                    response = self.getPixivPage(js_image_info, enable_cache=False)
+                    break
+                except PixivException as ex:
+                    if (
+                        ex.errorCode == PixivException.SERVER_ERROR
+                        and attempt == 0
+                    ):
+                        PixivHelper.print_and_log(
+                            "warn",
+                            f"Retry getImagePage ajax/illust for {image_id} "
+                            f"(attempt 2/2): {ex.message[:100]}",
+                        )
+                        PixivHelper.print_delay(3)
+                        continue
+                    raise
             PixivHelper.print_and_log("debug", f"js_image_info = {response}")
 
             # Issue #420

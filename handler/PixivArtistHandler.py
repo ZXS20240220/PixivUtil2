@@ -89,6 +89,9 @@ def process_member(
         pre_scan_success = False
         while flag:
             page_start_downloaded_count = downloaded_count
+            # 本页下载失败的图片数。失败时 downloaded_count 不增长,
+            # 若不区分会被误判为"本页没有新图"而提前停止整作者扫描。
+            page_failed_count = 0
             if end_page > 0:
                 PixivHelper.print_and_log(None, f"Page {page} of {end_page}")
             caller.set_console_title(
@@ -656,6 +659,9 @@ def process_member(
                         PixivHelper.print_delay(2)
 
                 no_of_images = no_of_images + 1
+                if result == PixivConstant.PIXIVUTIL_NOT_OK:
+                    # 图片下载失败(如 medium 页 SERVER_ERROR 被吞掉返回 NOT_OK)
+                    page_failed_count = page_failed_count + 1
                 if result in (
                     PixivConstant.PIXIVUTIL_SKIP_DUPLICATE,
                     PixivConstant.PIXIVUTIL_SKIP_LOCAL_LARGER,
@@ -749,7 +755,13 @@ def process_member(
                 flag = False
                 break
 
-            if anchor_found and downloaded_count == page_start_downloaded_count:
+            # 仅当本页无下载失败时,才把"本页零下载"判定为"后面都是已下载的旧图";
+            # 若本页有失败图,继续翻页扫描,避免单张失败拖垮整作者。
+            if (
+                anchor_found
+                and downloaded_count == page_start_downloaded_count
+                and page_failed_count == 0
+            ):
                 PixivHelper.print_and_log(
                     None,
                     f"No new images after anchor on page {page}, stopping pagination",
